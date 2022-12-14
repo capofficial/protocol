@@ -25,9 +25,14 @@ contract Cap {
 		uint256 size,
 		uint256 price,
 		uint256 fee,
-		bool isStop,
+		uint8 orderType,
 		bool isReduceOnly
     );
+
+    event OrderCancelled(
+		uint256 indexed orderId,
+		address indexed user
+	);
 
     event PositionIncreased(
         uint256 indexed orderId,
@@ -61,14 +66,14 @@ contract Cap {
 		int256 fundingFee
 	);
 
-    event PoolDeposit(
+    event AddLiquidity(
         address indexed user, 
         uint256 amount, 
         uint256 clpAmount,
         uint256 poolBalance
     );
 
-    event PoolWithdrawal(
+    event RemoveLiquidity(
         address indexed user, 
         uint256 amount,  
         uint256 feeAmount,  
@@ -123,12 +128,28 @@ contract Cap {
     Chainlink public chainlink;
     Store public store;
 
-    constructor(Chainlink _chainlink, Store _store) {
-		chainlink = _chainlink;
-        store = _store;
+    constructor(address _chainlink, address _store) {
+		chainlink = Chainlink(_chainlink);
+        store = Store(_store);
 	}
 
     // Methods
+
+    /*
+    TODO
+    OK - all orders including market should execute through keepers (anyone) either after 3min or if chainlink price is different
+    OK - trigger orders should execute at the chainlink price, not at their price
+    OK - you need to give traders the option to close with no profit, and get their margin back, in case there is nothing / little in the pool
+    OK - fee should be flat, no fee adjustments
+    - leave opportunity for deposits from a contract, as a sender, eg depositing ETH and getting funded in USDC directly
+    - ability for gov to pause a market in rare event of chainlink outage or bad data?
+    - add MAX_FEE, etc vars in contract to limit admin powers
+
+    the above prevents front running and makes sure chainlink has time to update before executing an order. also prevents scalpers, attracts swing or long term traders. no need for min position holding time.
+
+    => the problem is people won't get the price that's displayed on the screen as entry
+    => it is what it is, this is because LPs are passive. It's like uniswap, you don't know exactly, you can get front-run
+    */
 
     function deposit(uint256 amount) external {
         require(amount > 0, "!amount");
@@ -154,8 +175,60 @@ contract Cap {
         emit Withdraw(msg.sender, amount);
     }
 
-    // todo: depositPool
-    // todo: withdrawPool
+    function addLiquidity(uint256 amount) external {
+        require(amount > 0, "!amount");
+        uint256 balance = store.poolBalance();
+        address user = msg.sender;
+        store.transferIn(user, amount);
+
+        uint256 clpSupply = store.getCLPSupply();
+
+        uint256 clpAmount = balance == 0 || clpSupply == 0 ? amount : amount * clpSupply / balance;
+
+		store.mintCLP(user, clpAmount);
+		store.incrementPoolBalance(amount);
+
+		emit AddLiquidity(
+			user,
+			amount,
+			clpAmount,
+			store.poolBalance()
+		);
+
+    }
+
+    function removeLiquidity(uint256 amount) external {
+
+        require(amount > 0, "!amount");
+
+		address user = msg.sender;
+		uint256 balance = store.poolBalance();
+		uint256 clpSupply = store.getCLPSupply();
+		require(balance > 0 && clpSupply > 0, "!empty");
+
+		uint256 userBalance = store.getUserPoolBalance(user);
+		if (amount > userBalance) amount = userBalance;
+
+		uint256 feeAmount = amount * store.poolWithdrawalFee() / BPS_DIVIDER;
+		uint256 amountMinusFee = amount - feeAmount;
+
+		// CLP amount
+		uint256 clpAmount = amountMinusFee * clpSupply / balance;
+
+		store.burnCLP(user, clpAmount);
+		store.decrementPoolBalance(amountMinusFee);
+
+		store.transferOut(user, amountMinusFee);
+
+		emit RemoveLiquidity(
+			user,
+			amount,
+			feeAmount,
+			clpAmount,
+			store.poolBalance()
+		);
+
+    }
 
     function submitOrder(Store.Order memory params) external {
 
@@ -186,68 +259,130 @@ contract Cap {
         require(int256(lockedMargin) <= equity, "!equity");
 
         // fee
-        (uint256 longFee, uint256 shortFee) = store.getMarketFee(params.market, params.isReduceOnly);
-        uint256 fee = (params.isLong ? longFee : shortFee) * params.size / BPS_DIVIDER;
+        uint256 fee = market.fee * params.size / BPS_DIVIDER;
         store.decrementBalance(user, fee);
 
         // Get chainlink price
         uint256 chainlinkPrice = chainlink.getPrice(market.feed);
         require(chainlinkPrice > 0, "!chainlink");
 
-        // Check chainlink price vs order price
-        if (params.price > 0) {
-            // If trigger order price is beyond chainlink price, set it to 0 (market order)
-            if (
-                !params.isStop && params.isLong && chainlinkPrice <= params.price ||
-                !params.isStop && !params.isLong && chainlinkPrice >= params.price ||
-                params.isStop && params.isLong && chainlinkPrice >= params.price ||
-                params.isStop && !params.isLong && chainlinkPrice <= params.price
-            ) {
-                params.price = 0;
-            }
+        // Check chainlink price vs order price for trigger orders
+        if (
+            params.orderType == 1 && params.isLong && chainlinkPrice <= params.price ||
+            params.orderType == 1 && !params.isLong && chainlinkPrice >= params.price ||
+            params.orderType == 2 && params.isLong && chainlinkPrice >= params.price ||
+            params.orderType == 2 && !params.isLong && chainlinkPrice <= params.price
+        ) {
+            revert("!orderType");
+        }
+
+        // Assign current chainlink price to market orders
+        if (params.orderType == 0) {
+            params.price = chainlinkPrice; 
         }
 
         // Save order to store
-
         params.user = user;
 		params.fee = fee;
 		params.timestamp = block.timestamp;
 
-        if (params.price == 0) {
-            _executeOrder(params, chainlinkPrice);
-        } else {
-            uint256 orderId = store.addOrder(params);
-            emit OrderCreated(
-                orderId,
-                params.user,
-                params.market,
-                params.isLong,
-                params.margin,
-                params.size,
-                params.price,
-                params.fee,
-                params.isStop,
-                params.isReduceOnly
-            );
+        uint256 orderId = store.addOrder(params);
+        emit OrderCreated(
+            orderId,
+            params.user,
+            params.market,
+            params.isLong,
+            params.margin,
+            params.size,
+            params.price,
+            params.fee,
+            params.orderType,
+            params.isReduceOnly
+        );
+
+    }
+
+    function updateOrder(uint256 orderId, uint256 price) external {
+        Store.Order memory order = store.getOrder(orderId);
+        require(order.user == msg.sender, "!user");
+        require(order.size > 0, "!order");
+        require(order.orderType != 0, "!market-order");
+        Store.Market memory market = store.getMarket(order.market);
+        uint256 chainlinkPrice = chainlink.getPrice(market.feed);
+        require(chainlinkPrice > 0, "!chainlink");
+        if (
+            order.orderType == 1 && order.isLong && chainlinkPrice <= price ||
+            order.orderType == 1 && !order.isLong && chainlinkPrice >= price ||
+            order.orderType == 2 && order.isLong && chainlinkPrice >= price ||
+            order.orderType == 2 && !order.isLong && chainlinkPrice <= price
+        ) {
+            if (order.orderType == 1) order.orderType = 2;
+            if (order.orderType == 2) order.orderType = 1;
+        }
+        order.price = price;
+        store.updateOrder(order);
+    }
+
+    function cancelOrder(uint256 orderId) external {
+        Store.Order memory order = store.getOrder(orderId);
+        require(order.user == msg.sender, "!user");
+        require(order.size > 0, "!order");
+        require(order.orderType != 0, "!market-order");
+        if (!order.isReduceOnly) {
+            store.unlockMargin(order.user, order.margin);
+        }
+        store.incrementBalance(order.user, order.fee);
+        store.transferOut(order.user, order.margin + order.fee);
+        store.removeOrder(orderId);
+        emit OrderCancelled(
+			orderId, 
+			order.user
+		);
+    }
+
+    function getExecutableOrderIds() public view returns(uint256[] memory orderIdsToExecute){
+
+        Store.Order[] memory orders = store.getOrders();
+        uint256[] memory _orderIds = new uint256[](orders.length);
+        uint256 j;
+        for (uint256 i = 0; i < orders.length; i++) {
+
+            Store.Order memory order = orders[i];
+            Store.Market memory market = store.getMarket(order.market);
+
+            uint256 chainlinkPrice = chainlink.getPrice(market.feed);
+            if (chainlinkPrice == 0) continue;
+
+            // Can this order be executed?
+            if (
+                order.orderType == 0 ||
+                order.orderType == 1 && order.isLong && chainlinkPrice <= order.price ||
+                order.orderType == 1 && !order.isLong && chainlinkPrice >= order.price ||
+                order.orderType == 2 && order.isLong && chainlinkPrice >= order.price ||
+                order.orderType == 2 && !order.isLong && chainlinkPrice <= order.price
+            ) {
+                // Check settlement time has passed, or chainlinkPrice is different for market order
+                if (order.orderType == 0 && chainlinkPrice != order.price || block.timestamp - order.timestamp > market.minSettlementTime) {
+                    _orderIds[j] = order.orderId;
+                    j++;
+                }
+            }
+
         }
 
-    }
+        // Return trimmed result containing only executable order ids
+        orderIdsToExecute = new uint256[](j);
+        for (uint256 i = 0; i < j; i++) {
+            orderIdsToExecute[i] = _orderIds[i];
+        }
 
-    function updateOrder() external {
-
-    }
-
-    function cancelOrder() external {
-
-    }
-
-    function getExecutableOrders() external {
+        return orderIdsToExecute;
 
     }
 
-    function executeOrders(uint256[] calldata orderIds) external {
-        uint256 length = orderIds.length;
-		for (uint256 i = 0; i < length; i++) {
+    function executeOrders() external {
+        uint256[] memory orderIds = getExecutableOrderIds();
+		for (uint256 i = 0; i < orderIds.length; i++) {
             uint256 orderId = orderIds[i];
             Store.Order memory order = store.getOrder(orderId);
             if (order.size == 0 || order.price == 0) continue;
@@ -428,7 +563,7 @@ contract Cap {
 				size: remainingOrderSize,
 				price: 0,
 				isLong: order.isLong,
-                isStop: false,
+                orderType: 0,
 				fee: order.fee * remainingOrderSize / order.size,
 				isReduceOnly: false,
 				timestamp: block.timestamp
@@ -437,6 +572,62 @@ contract Cap {
 			_increasePosition(nextOrder, price);
 
 		}
+
+    }
+
+    function closePositionWithoutProfit(string memory _market) external {
+
+        address user = msg.sender;
+
+        Store.Position memory position = store.getPosition(user, _market);
+        require(position.size > 0, "!position");
+
+        Store.Market memory market = store.getMarket(_market);
+
+        uint256 fee = position.size * market.fee / BPS_DIVIDER;
+
+        _creditFee(user, _market, fee, false);
+
+		store.decrementOI(_market, position.size, position.isLong);
+		
+        _updateFundingTracker(_market);
+
+        uint256 chainlinkPrice = chainlink.getPrice(market.feed);
+        require(chainlinkPrice > 0, "!price");
+
+		// P/L
+
+		(int256 pnl, int256 fundingFee) = _getPnL(
+			_market, 
+			position.isLong, 
+			chainlinkPrice, 
+			position.price, 
+			position.size, 
+			position.fundingTracker
+		);
+
+        // Only profitable positions can be closed this way
+        require(pnl >= 0, "!pnl");
+
+        store.unlockMargin(user, position.margin);
+        store.removePosition(user, _market);
+
+		emit PositionDecreased(
+			0,
+			user,
+			_market,
+			!position.isLong,
+			position.size,
+			position.margin,
+			chainlinkPrice,
+			position.margin,
+			position.size,
+			position.price,
+			position.fundingTracker,
+			fee,
+			0,
+			0
+		);
 
     }
 
@@ -459,7 +650,7 @@ contract Cap {
                 j++;
             }
 		}
-        // Retrun trimmed result containing only users to be liquidated
+        // Return trimmed result containing only users to be liquidated
         usersToLiquidate = new address[](j);
         for (uint256 i = 0; i < j; i++) {
             usersToLiquidate[i] = _users[i];
@@ -480,7 +671,7 @@ contract Cap {
                 Store.Position memory position = positions[j];
                 Store.Market memory market = store.getMarket(position.market);
 
-                uint256 fee = position.size * market.baseFee / BPS_DIVIDER;
+                uint256 fee = position.size * market.fee / BPS_DIVIDER;
                 uint256 liquidatorFee = fee * store.liquidatorFeeShare() / BPS_DIVIDER;
                 fee -= liquidatorFee;
                 liquidatorFees += liquidatorFee;

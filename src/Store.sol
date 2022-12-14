@@ -4,6 +4,8 @@ pragma solidity ^0.8.13;
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
+import "./CLP.sol";
+
 contract Store {
 
     using EnumerableSet for EnumerableSet.UintSet;
@@ -15,9 +17,11 @@ contract Store {
 
     address public capContract;
     address public asset;
+    address public clp;
 
     uint256 public poolFeeShare; // in bps
     uint256 public liquidatorFeeShare; // in bps
+    uint256 public poolWithdrawalFee; // in bps
 
     uint256 public minimumMarginLevel = 2000; // 20% in bps, at which account is liquidated
 
@@ -27,21 +31,19 @@ contract Store {
         address feed;
         uint256 maxLeverage;
         uint256 maxOI;
-        uint256 maxFeeAdjustment; // if OILong or OIShort = maxOI, in bps
-        uint256 baseFee; // OILong and OIShort = 0, or fee to close position, in bps
+        uint256 fee; // in bps
         uint256 minSize;
-        uint256 minPositionTime;
+        uint256 minSettlementTime; // time before keepers can execute order (price finality) if chainlink price didn't change
     }
 
-    // Limit or stop order
     struct Order {
         uint256 orderId;
         address user;
         string market;
-        uint256 price; // price = 0 => market order
-        bool isReduceOnly;
+        uint256 price;
         bool isLong;
-        bool isStop; // false = limit order
+        bool isReduceOnly;
+        uint8 orderType; // 0 = market, 1 = limit, 2 = stop
         uint256 margin;
         uint256 size;
         uint256 fee;
@@ -72,6 +74,7 @@ contract Store {
 
     mapping(uint256 => Order) private orders;
     mapping(address => EnumerableSet.UintSet) private userOrderIds; // user => [order ids..]
+    EnumerableSet.UintSet private orderIds; // [order ids..]
 
     mapping(string => Market) private markets;
 
@@ -105,6 +108,18 @@ contract Store {
         IERC20(asset).safeTransfer(user, amount);
 	}
 
+    function getCLPSupply() external view onlyContract returns(uint256) {
+        return IERC20(clp).totalSupply();
+    }
+
+    function mintCLP(address user, uint256 amount) external onlyContract {
+        CLP(clp).mint(user, amount);
+    }
+
+    function burnCLP(address user, uint256 amount) external onlyContract {
+        CLP(clp).mint(user, amount);
+    }
+
     function incrementBalance(address user, uint256 amount) external onlyContract {
         balances[user] += amount;
     }
@@ -125,6 +140,12 @@ contract Store {
     function decrementPoolBalance(uint256 amount) external onlyContract {
         poolBalance -= amount;
     }
+
+    function getUserPoolBalance(address user) public view returns(uint256) {
+        uint256 clpSupply = IERC20(clp).totalSupply();
+        if (clpSupply == 0) return 0;
+		return IERC20(clp).balanceOf(user) * poolBalance / clpSupply;
+	}
 
     function incrementBufferBalance(uint256 amount) external onlyContract {
         bufferBalance += amount;
@@ -217,14 +238,38 @@ contract Store {
         order.orderId = nextOrderId;
 		orders[nextOrderId] = order;
 		userOrderIds[order.user].add(nextOrderId);
+        orderIds.add(nextOrderId);
 		return nextOrderId;
+	}
+
+    function updateOrder(Order memory order) external onlyContract {
+		orders[order.orderId] = order;
 	}
 
     function removeOrder(uint256 _orderId) external onlyContract {
 		Order memory order = orders[_orderId];
 		if (order.size == 0) return;
 		userOrderIds[order.user].remove(_orderId);
+        orderIds.remove(orderId);
 		delete orders[_orderId];
+	}
+
+    function getOrders() external view returns(Order[] memory _orders) {
+		uint256 length = orderIds.length();
+		_orders = new Order[](length);
+		for (uint256 i = 0; i < length; i++) {
+			_orders[i] = orders[orderIds.at(i)];
+		}
+		return _orders;
+	}
+
+	function getUserOrders(address user) external view returns(Order[] memory _orders) {
+		uint256 length = userOrderIds[user].length();
+		_orders = new Order[](length);
+		for (uint256 i = 0; i < length; i++) {
+			_orders[i] = orders[userOrderIds[user].at(i)];
+		}
+		return _orders;
 	}
 
     function addOrUpdatePosition(Position memory position) external onlyContract {
@@ -261,32 +306,6 @@ contract Store {
 
     function getMarket(string memory market) external view returns (Market memory _market) {
         return markets[market];
-    }
-
-    function getMarketFee(string memory market, bool isReduceOnly) external view returns(uint256 longFee, uint256 shortFee) {
-       
-        uint256 oilong = OILong[market];
-        uint256 oishort = OIShort[market];
-
-        uint256 baseFee = markets[market].baseFee;
-        
-        if (isReduceOnly || (oilong == 0 && oishort == 0)) return (baseFee, baseFee);
-
-        uint256 maxFeeAdjustment = markets[market].maxFeeAdjustment;
-        uint256 maxOI = markets[market].maxOI;
-
-        uint256 OIDiff = oishort > oilong ? oishort - oilong : oilong - oishort;
-
-        if (oilong > oishort) {
-            longFee = baseFee + maxFeeAdjustment * OIDiff / maxOI;
-            shortFee = baseFee - maxFeeAdjustment * OIDiff / maxOI;
-        } else {
-            longFee = baseFee - maxFeeAdjustment * OIDiff / maxOI;
-            shortFee = baseFee + maxFeeAdjustment * OIDiff / maxOI;
-        }
-
-        return (longFee, shortFee);
-
     }
 
     function getFundingLastUpdated(string memory market) external view returns(uint256) {
