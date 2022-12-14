@@ -15,12 +15,13 @@ contract Store {
 
     uint256 public constant BPS_DIVIDER = 10000;
 
+    address public gov;
     address public capContract;
     address public asset;
     address public clp;
 
     uint256 public poolFeeShare; // in bps
-    uint256 public liquidatorFeeShare; // in bps
+    uint256 public keeperFeeShare; // in bps
     uint256 public poolWithdrawalFee; // in bps
 
     uint256 public minimumMarginLevel = 2000; // 20% in bps, at which account is liquidated
@@ -32,6 +33,7 @@ contract Store {
         uint256 maxLeverage;
         uint256 maxOI;
         uint256 fee; // in bps
+        uint256 fundingFactor; // Yearly funding rate if OI is completely skewed to one side. In bps.
         uint256 minSize;
         uint256 minSettlementTime; // time before keepers can execute order (price finality) if chainlink price didn't change
     }
@@ -76,6 +78,9 @@ contract Store {
     mapping(address => EnumerableSet.UintSet) private userOrderIds; // user => [order ids..]
     EnumerableSet.UintSet private orderIds; // [order ids..]
 
+    uint256 public constant MAX_FEE = 1000; // 10%
+
+    string[] public marketList; // "ETH-USD", "BTC-USD", etc
     mapping(string => Market) private markets;
 
     mapping(bytes32 => Position) private positions; // key = user,market
@@ -90,15 +95,48 @@ contract Store {
     EnumerableSet.AddressSet private usersWithLockedMargin; // [users...]
 
     // Funding
-    uint256 public defaultFundingFactor = 5000; // In bps. 50% yearly
-	uint256 public fundingInterval = 1 hours; // In seconds.
-	mapping(string => uint256) private fundingFactors; // Yearly funding rate if OI is completely skewed to one side. In bps.
+	uint256 public constant fundingInterval = 1 hours; // In seconds.
+
 	mapping(string => int256) private fundingTrackers; // market => funding tracker (long) (short is opposite) // in UNIT * bps
 	mapping(string => uint256) private fundingLastUpdated; // market => last time fundingTracker was updated. In seconds.
 
     constructor(address _contract) {
+        gov = msg.sender;
         capContract = _contract;
     }
+
+    // Gov methods
+
+    function setPoolFeeShare(uint256 amount) external onlyGov {
+        poolFeeShare = amount;
+    }
+
+    function setKeeperFeeShare(uint256 amount) external onlyGov {
+        keeperFeeShare = amount;
+    }
+
+    function setPoolWithdrawalFee(uint256 amount) external onlyGov {
+        poolWithdrawalFee = amount;
+    }
+
+    function setMinimumMarginLevel(uint256 amount) external onlyGov {
+        minimumMarginLevel = amount;
+    }
+
+    function setBufferPayoutPeriod(uint256 amount) external onlyGov {
+        bufferPayoutPeriod = amount;
+    }
+
+    function setMarket(string memory market, Market memory marketInfo) external onlyGov {
+		require(marketInfo.fee <= MAX_FEE, "!max-fee");
+		markets[market] = marketInfo;
+		for (uint256 i = 0; i < marketList.length; i++) {
+			if (keccak256(abi.encodePacked(marketList[i])) == keccak256(abi.encodePacked(market))) return;
+		}
+		marketList.push(market);
+	}
+
+    // Methods
 
     function transferIn(address user, uint256 amount) external onlyContract {
 		IERC20(asset).safeTransferFrom(user, address(this), amount);
@@ -308,13 +346,16 @@ contract Store {
         return markets[market];
     }
 
+    function getMarketList() external view returns(string[] memory) {
+		return marketList;
+	}
+
     function getFundingLastUpdated(string memory market) external view returns(uint256) {
 		return fundingLastUpdated[market];
 	}
 
 	function getFundingFactor(string memory market) external view returns(uint256) {
-		if (fundingFactors[market] > 0) return fundingFactors[market];
-		return defaultFundingFactor;
+        return markets[market].fundingFactor;
 	}
 
 	function getFundingTracker(string memory market) external view returns(int256) {
@@ -330,7 +371,12 @@ contract Store {
 	}
 
     modifier onlyContract() {
-        require(msg.sender == capContract, '!authorized');
+        require(msg.sender == capContract, '!contract');
+        _;
+    }
+
+    modifier onlyGov() {
+        require(msg.sender == gov, '!gov');
         _;
     }
 

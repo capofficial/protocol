@@ -46,7 +46,8 @@ contract Cap {
 		uint256 positionSize,
 		uint256 positionPrice,
 		int256 fundingTracker,
-		uint256 fee
+		uint256 fee,
+		uint256 keeperFee
 	);
 
 	event PositionDecreased(
@@ -62,6 +63,7 @@ contract Cap {
 		uint256 positionPrice,
 		int256 fundingTracker,
 		uint256 fee,
+        uint256 keeperFee,
 		int256 pnl,
 		int256 fundingFee
 	);
@@ -142,8 +144,8 @@ contract Cap {
     OK - you need to give traders the option to close with no profit, and get their margin back, in case there is nothing / little in the pool
     OK - fee should be flat, no fee adjustments
     - leave opportunity for deposits from a contract, as a sender, eg depositing ETH and getting funded in USDC directly
-    - ability for gov to pause a market in rare event of chainlink outage or bad data?
-    - add MAX_FEE, etc vars in contract to limit admin powers
+    OK - add gov methods to store
+    - add MAX_FEE, etc vars in contract to limit gov powers
 
     the above prevents front running and makes sure chainlink has time to update before executing an order. also prevents scalpers, attracts swing or long term traders. no need for min position holding time.
 
@@ -389,11 +391,11 @@ contract Cap {
             Store.Market memory market = store.getMarket(order.market);
             uint256 chainlinkPrice = chainlink.getPrice(market.feed);
             if (chainlinkPrice == 0) continue;
-            _executeOrder(order, chainlinkPrice);
+            _executeOrder(order, chainlinkPrice, msg.sender);
         }
     }
 
-    function _executeOrder(Store.Order memory order, uint256 price) internal {
+    function _executeOrder(Store.Order memory order, uint256 price, address keeper) internal {
 
         // Check for existing position
         Store.Position memory position = store.getPosition(order.user, order.market);
@@ -402,18 +404,24 @@ contract Cap {
 		bool doReduce = position.size > 0 && order.isLong != position.isLong;
 
         if (doAdd) {
-            _increasePosition(order, price);
+            _increasePosition(order, price, keeper);
         } else if (doReduce) {
-            _decreasePosition(order, price);
+            _decreasePosition(order, price, keeper);
         }
 
     }
 
-    function _increasePosition(Store.Order memory order, uint256 price) internal {
+    function _increasePosition(Store.Order memory order, uint256 price, address keeper) internal {
         
         Store.Position memory position = store.getPosition(order.user, order.market);
 
-        _creditFee(order.user, order.market, order.fee, false);
+        uint256 fee = order.fee;
+        uint256 keeperFee = fee * store.keeperFeeShare() / BPS_DIVIDER;
+        fee -= keeperFee;
+
+        _creditFee(order.user, order.market, fee, false);
+
+        store.transferOut(keeper, keeperFee);
 
         store.incrementOI(order.market, order.size, order.isLong);
 
@@ -451,12 +459,13 @@ contract Cap {
 			position.size,
 			position.price,
 			position.fundingTracker,
-            order.fee
+            fee,
+            keeperFee
 		);
 
     }
 
-    function _decreasePosition(Store.Order memory order, uint256 price) internal {
+    function _decreasePosition(Store.Order memory order, uint256 price, address keeper) internal {
 
         Store.Position memory position = store.getPosition(order.user, order.market);
 
@@ -477,7 +486,13 @@ contract Cap {
 			remainingOrderMargin = order.margin - executedOrderMargin;
 		}
 
-        _creditFee(order.user, order.market, order.fee, false);
+        uint256 fee = order.fee;
+        uint256 keeperFee = fee * store.keeperFeeShare() / BPS_DIVIDER;
+        fee -= keeperFee;
+
+        _creditFee(order.user, order.market, fee, false);
+
+        store.transferOut(keeper, keeperFee);
 
 		// Funding update
 
@@ -546,7 +561,8 @@ contract Cap {
 			position.size,
 			position.price,
 			position.fundingTracker,
-			order.fee,
+			fee,
+            keeperFee,
 			pnl,
 			fundingFee
 		);
@@ -569,7 +585,7 @@ contract Cap {
 				timestamp: block.timestamp
 			});
 
-			_increasePosition(nextOrder, price);
+			_increasePosition(nextOrder, price, keeper);
 
 		}
 
@@ -597,7 +613,7 @@ contract Cap {
 
 		// P/L
 
-		(int256 pnl, int256 fundingFee) = _getPnL(
+		(int256 pnl, ) = _getPnL(
 			_market, 
 			position.isLong, 
 			chainlinkPrice, 
@@ -625,6 +641,7 @@ contract Cap {
 			position.price,
 			position.fundingTracker,
 			fee,
+            0,
 			0,
 			0
 		);
@@ -672,7 +689,7 @@ contract Cap {
                 Store.Market memory market = store.getMarket(position.market);
 
                 uint256 fee = position.size * market.fee / BPS_DIVIDER;
-                uint256 liquidatorFee = fee * store.liquidatorFeeShare() / BPS_DIVIDER;
+                uint256 liquidatorFee = fee * store.keeperFeeShare() / BPS_DIVIDER;
                 fee -= liquidatorFee;
                 liquidatorFees += liquidatorFee;
 
