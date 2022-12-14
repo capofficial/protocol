@@ -112,6 +112,12 @@ contract Cap {
         uint256 liquidatorFee
 	);
 
+    event FundingUpdated(
+        string market,
+        int256 fundingTracker,
+	    int256 fundingIncrement
+    );
+
     // Store
 
     Chainlink public chainlink;
@@ -526,7 +532,7 @@ contract Cap {
 		}
 
 		int256 currentFundingTracker = store.getFundingTracker(market);
-		fundingFee = int256(size) * (currentFundingTracker - fundingTracker) / int256(BPS_DIVIDER);
+		fundingFee = int256(size) * (currentFundingTracker - fundingTracker) / (int256(BPS_DIVIDER) * int256(UNIT)); // funding tracker is in UNIT * bps
 
 		if (isLong) {
 			pnl -= fundingFee; // positive = longs pay, negative = longs receive
@@ -538,73 +544,88 @@ contract Cap {
 
 	}
 
-     function _getUpl(address user) internal view returns(int256) {
+     function _getUpl(address user) internal view returns(int256 upl) {
 
-        // for each user position
-        // do _getPnl
-        // add all
+        Store.Position[] memory positions = store.getUserPositions(user);
+        for (uint256 j = 0; j < positions.length; j++) {
+
+            Store.Position memory position = positions[j];
+            Store.Market memory market = store.getMarket(position.market);
+
+            uint256 chainlinkPrice = chainlink.getPrice(market.feed);
+            if (chainlinkPrice == 0) continue;
+
+            (int256 pnl, ) = _getPnL(
+                position.market, 
+                position.isLong, 
+                chainlinkPrice, 
+                position.price, 
+                position.size, 
+                position.fundingTracker
+            );
+
+            upl += pnl;
+
+        }
+
+        return upl;
 
     }
 
     function _updateFundingTracker(string memory market) internal {
 
+        uint256 lastUpdated = store.getFundingLastUpdated(market);
+		uint256 _now = block.timestamp;
+		
+		if (lastUpdated == 0) {
+	    	store.setFundingLastUpdated(market, _now);
+	    	return;
+	    }
+
+		if (lastUpdated + store.fundingInterval() > _now) return;
+	    
+	    int256 fundingIncrement = getAccruedFunding(market, 0); // in UNIT * bps
+
+	    if (fundingIncrement == 0) return;
+    	
+    	store.updateFundingTracker(market, fundingIncrement);
+    	store.setFundingLastUpdated(market, _now);
+	    
+	    emit FundingUpdated(
+	    	market,
+	    	store.getFundingTracker(market),
+	    	fundingIncrement
+	    );
+
     }
 
-    // todo: make minInterval = 1 second
+    function getAccruedFunding(string memory market, uint256 intervals) public view returns (int256) {
 
-    // function updateFundingTracker(address asset, string memory market) external onlyContract {
+        if (intervals == 0) {
+			intervals = (block.timestamp - store.getFundingLastUpdated(market)) / store.fundingInterval();
+		}
 		
-	// 	uint256 lastUpdated = fundingStore.getLastUpdated(asset, market);
-	// 	uint256 _now = block.timestamp;
-		
-	// 	if (lastUpdated == 0) {
-	//     	fundingStore.setLastUpdated(asset, market, _now);
-	//     	return;
-	//     }
-
-	// 	if (lastUpdated + fundingStore.fundingInterval() > _now) return;
+		if (intervals == 0) return 0;
 	    
-	//     int256 fundingIncrement = getAccruedFunding(asset, market, 0);
-
-	//     if (fundingIncrement == 0) return;
-    	
-    // 	fundingStore.updateFundingTracker(asset, market, fundingIncrement);
-    // 	fundingStore.setLastUpdated(asset, market, _now);
+	    uint256 OILong = store.getOILong(market);
+	    uint256 OIShort = store.getOIShort(market);
 	    
-	//     emit FundingUpdated(
-	//     	asset,
-	//     	market,
-	//     	fundingStore.getFundingTracker(asset, market),
-	//     	fundingIncrement
-	//     );
+	    if (OIShort == 0 && OILong == 0) return 0;
 
-	// }
+	    uint256 OIDiff = OIShort > OILong ? OIShort - OILong : OILong - OIShort;
+        uint256 yearlyFundingFactor = store.getFundingFactor(market); // in bps
+        // intervals = hours since fundingInterval = 1 hour
+	    uint256 accruedFunding = UNIT * yearlyFundingFactor * OIDiff * intervals / (24 * 365 * (OILong + OIShort)); // in UNIT * bps
 
-	// function getAccruedFunding(address asset, string memory market, uint256 intervals) public view returns (int256) {
-		
-	// 	if (intervals == 0) {
-	// 		intervals = (block.timestamp - fundingStore.getLastUpdated(asset, market)) / fundingStore.fundingInterval();
-	// 	}
-		
-	// 	if (intervals == 0) return 0;
-	    
-	//     uint256 OILong = positionStore.getOILong(asset, market);
-	//     uint256 OIShort = positionStore.getOIShort(asset, market);
-	    
-	//     if (OIShort == 0 && OILong == 0) return 0;
+	    if (OILong > OIShort) {
+	    	// Longs pay shorts. Increase funding tracker.
+	    	return int256(accruedFunding);
+	    } else {
+	    	// Shorts pay longs. Decrease funding tracker.
+	    	return -1 * int256(accruedFunding);
+	    }
 
-	//     uint256 OIDiff = OIShort > OILong ? OIShort - OILong : OILong - OIShort;
-	//     uint256 accruedFunding = fundingStore.getFundingFactor(market) * OIDiff * intervals / (24 * (OILong + OIShort));
-
-	//     if (OILong > OIShort) {
-	//     	// Longs pay shorts. Increase funding tracker.
-	//     	return int256(accruedFunding);
-	//     } else {
-	//     	// Shorts pay longs. Decrease funding tracker.
-	//     	return -1 * int256(accruedFunding);
-	//     }
-
-	// }
+    }
 
     function _creditTraderLoss(
 		address user,  
