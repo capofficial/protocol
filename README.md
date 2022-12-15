@@ -8,6 +8,7 @@
 - [x] Flat fee
 - [x] Allow submitting TP/SL with an order
 - [x] Contracts: Trade, Pool, Store, Chainlink 
+- [ ] Treasury fees should be paid out to treasury address directly
 - [ ] Add method to "depositAs" or "addLiquidityAs" e.g. to allow deposits from a contract like Uniswap Router, to allow people to deposit any asset which is then automatically converted into the Store supported currency
 - [ ] Add MAX_FEE and other variables in Store to limit gov powers
 - [ ] Add automated tests, including fuzzy, to achieve > 90% coverage
