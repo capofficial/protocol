@@ -8,6 +8,8 @@ import "./CLP.sol";
 
 contract Store {
 
+    // TODO: send balance to treasury address
+
     using EnumerableSet for EnumerableSet.UintSet;
     using EnumerableSet for EnumerableSet.Bytes32Set;
     using EnumerableSet for EnumerableSet.AddressSet;
@@ -16,14 +18,16 @@ contract Store {
     uint256 public constant BPS_DIVIDER = 10000;
 
     address public gov;
-    address public capContract;
     address public currency;
     address public clp;
 
-    uint256 public poolFeeShare; // in bps
-    uint256 public keeperFeeShare; // in bps
-    uint256 public poolWithdrawalFee; // in bps
+    // contracts
+    address public trade;
+    address public pool;
 
+    uint256 public poolFeeShare = 5000; // in bps
+    uint256 public keeperFeeShare = 1000; // in bps
+    uint256 public poolWithdrawalFee = 10; // in bps
     uint256 public minimumMarginLevel = 2000; // 20% in bps, at which account is liquidated
 
      // Structs
@@ -101,9 +105,20 @@ contract Store {
 	mapping(string => int256) private fundingTrackers; // market => funding tracker (long) (short is opposite) // in UNIT * bps
 	mapping(string => uint256) private fundingLastUpdated; // market => last time fundingTracker was updated. In seconds.
 
-    constructor(address _contract) {
+    constructor() {
         gov = msg.sender;
-        capContract = _contract;
+    }
+
+    function link(
+        address _trade,
+        address _pool,
+        address _currency,
+        address _clp
+    ) external onlyGov {
+        trade = _trade;
+        pool = _pool;
+        currency = _currency;
+        clp = _clp;
     }
 
     // Gov methods
@@ -372,7 +387,7 @@ contract Store {
 	}
 
     modifier onlyContract() {
-        require(msg.sender == capContract, '!contract');
+        require(msg.sender == trade || msg.sender == pool, '!contract');
         _;
     }
 

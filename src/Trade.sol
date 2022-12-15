@@ -1,149 +1,14 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.13;
 
-import "./Chainlink.sol";
-import "./Store.sol";
-
-contract Cap {
-
-    // Stateless, data in Store.sol
-
-    uint256 public constant UNIT = 10**18;
-    uint256 public constant BPS_DIVIDER = 10000;
-
-
-    // Events
-    event Deposit(address indexed user, uint256 amount);
-    event Withdraw(address indexed user, uint256 amount);
-
-    event OrderCreated(
-        uint256 indexed orderId,
-		address indexed user,
-		string market,
-		bool isLong,
-		uint256 margin,
-		uint256 size,
-		uint256 price,
-		uint256 fee,
-		uint8 orderType,
-		bool isReduceOnly
-    );
-
-    event OrderCancelled(
-		uint256 indexed orderId,
-		address indexed user
-	);
-
-    event PositionIncreased(
-        uint256 indexed orderId,
-		address indexed user,
-		string market,
-		bool isLong,
-		uint256 size,
-		uint256 margin,
-		uint256 price,
-		uint256 positionMargin,
-		uint256 positionSize,
-		uint256 positionPrice,
-		int256 fundingTracker,
-		uint256 fee,
-		uint256 keeperFee
-	);
-
-	event PositionDecreased(
-        uint256 indexed orderId,
-		address indexed user,
-		string market,
-		bool isLong,
-		uint256 size,
-		uint256 margin,
-		uint256 price,
-		uint256 positionMargin,
-		uint256 positionSize,
-		uint256 positionPrice,
-		int256 fundingTracker,
-		uint256 fee,
-        uint256 keeperFee,
-		int256 pnl,
-		int256 fundingFee
-	);
-
-    event AddLiquidity(
-        address indexed user, 
-        uint256 amount, 
-        uint256 clpAmount,
-        uint256 poolBalance
-    );
-
-    event RemoveLiquidity(
-        address indexed user, 
-        uint256 amount,  
-        uint256 feeAmount,  
-        uint256 clpAmount,
-        uint256 poolBalance
-    );
-
-    event PoolPayIn(
-    	address indexed user, 
-        string market,
-        uint256 amount,
-        uint256 bufferToPoolAmount,
-        uint256 poolBalance,
-        uint256 bufferBalance
-    );
-
-    event PoolPayOut(
-    	address indexed user,
-        string market,
-        uint256 amount,
-        uint256 poolBalance,
-        uint256 bufferBalance
-    );
-
-    event FeePaid(
-	    address indexed user,
-	    string market,
-	    uint256 fee,
-	    uint256 poolFee,
-	    bool isLiquidation
-	);
-
-    event PositionLiquidated(
-		address indexed user,
-		string market,
-		bool isLong,
-		uint256 size,
-		uint256 margin,
-		uint256 price,
-		uint256 fee,
-        uint256 liquidatorFee
-	);
-
-    event FundingUpdated(
-        string market,
-        int256 fundingTracker,
-	    int256 fundingIncrement
-    );
-
-    // Store
-
-    Chainlink public chainlink;
-    Store public store;
-
-    constructor(address _chainlink, address _store) {
-		chainlink = Chainlink(_chainlink);
-        store = Store(_store);
-	}
-
-    // Methods
-
-    /*
+/*
     TODO
     OK - all orders including market should execute through keepers (anyone) either after 3min or if chainlink price is different
     OK - trigger orders should execute at the chainlink price, not at their price
     OK - you need to give traders the option to close with no profit, and get their margin back, in case there is nothing / little in the pool
     OK - fee should be flat, no fee adjustments
-    - allow submitting TP/SL with an order
+    OK - allow submitting TP/SL with an order
+    - split contract into Trade and Pool
     - leave opportunity for deposits from a contract, as a sender, eg depositing ETH and getting funded in USDC directly
     OK - add gov methods to store
     - add MAX_FEE, etc vars in contract to limit gov powers
@@ -154,7 +19,35 @@ contract Cap {
     => it is what it is, this is because LPs are passive. It's like uniswap, you don't know exactly, you can get front-run
     */
 
-    function deposit(uint256 amount) external {
+import "./Chainlink.sol";
+import "./Store.sol";
+import "./Pool.sol";
+import "./interfaces/ITrade.sol";
+
+contract Trade is ITrade {
+
+	uint256 public constant UNIT = 10**18;
+    uint256 public constant BPS_DIVIDER = 10000;
+
+    address public gov;
+
+	Chainlink public chainlink;
+    Pool public pool;
+    Store public store;
+
+	// Methods
+
+	constructor() {
+        gov = msg.sender;
+    }
+
+    function link(address _chainlink, address _pool, address _store) external onlyGov {
+        chainlink = Chainlink(_chainlink);
+        pool = Pool(_pool);
+        store = Store(_store);
+    }
+
+	function deposit(uint256 amount) external {
         require(amount > 0, "!amount");
         store.transferIn(msg.sender, amount);
         store.incrementBalance(msg.sender, amount);
@@ -178,62 +71,7 @@ contract Cap {
         emit Withdraw(msg.sender, amount);
     }
 
-    function addLiquidity(uint256 amount) external {
-        require(amount > 0, "!amount");
-        uint256 balance = store.poolBalance();
-        address user = msg.sender;
-        store.transferIn(user, amount);
-
-        uint256 clpSupply = store.getCLPSupply();
-
-        uint256 clpAmount = balance == 0 || clpSupply == 0 ? amount : amount * clpSupply / balance;
-
-		store.mintCLP(user, clpAmount);
-		store.incrementPoolBalance(amount);
-
-		emit AddLiquidity(
-			user,
-			amount,
-			clpAmount,
-			store.poolBalance()
-		);
-
-    }
-
-    function removeLiquidity(uint256 amount) external {
-
-        require(amount > 0, "!amount");
-
-		address user = msg.sender;
-		uint256 balance = store.poolBalance();
-		uint256 clpSupply = store.getCLPSupply();
-		require(balance > 0 && clpSupply > 0, "!empty");
-
-		uint256 userBalance = store.getUserPoolBalance(user);
-		if (amount > userBalance) amount = userBalance;
-
-		uint256 feeAmount = amount * store.poolWithdrawalFee() / BPS_DIVIDER;
-		uint256 amountMinusFee = amount - feeAmount;
-
-		// CLP amount
-		uint256 clpAmount = amountMinusFee * clpSupply / balance;
-
-		store.burnCLP(user, clpAmount);
-		store.decrementPoolBalance(amountMinusFee);
-
-		store.transferOut(user, amountMinusFee);
-
-		emit RemoveLiquidity(
-			user,
-			amount,
-			feeAmount,
-			clpAmount,
-			store.poolBalance()
-		);
-
-    }
-
-    function submitOrder(Store.Order memory params, uint256 tpPrice, uint256 slPrice) external {
+	function submitOrder(Store.Order memory params, uint256 tpPrice, uint256 slPrice) external {
 
         address user = msg.sender;
         
@@ -486,7 +324,7 @@ contract Cap {
         uint256 keeperFee = fee * store.keeperFeeShare() / BPS_DIVIDER;
         fee -= keeperFee;
 
-        _creditFee(order.user, order.market, fee, false);
+        pool.creditFee(order.user, order.market, fee, false);
 
         store.transferOut(keeper, keeperFee);
 
@@ -557,7 +395,7 @@ contract Cap {
         uint256 keeperFee = fee * store.keeperFeeShare() / BPS_DIVIDER;
         fee -= keeperFee;
 
-        _creditFee(order.user, order.market, fee, false);
+        pool.creditFee(order.user, order.market, fee, false);
 
         store.transferOut(keeper, keeperFee);
 
@@ -595,14 +433,14 @@ contract Cap {
 			uint256 absPnl = uint256(-1 * pnl);
 
             // credit trader loss to pool
-			_creditTraderLoss(order.user, order.market, absPnl);
+			pool.creditTraderLoss(order.user, order.market, absPnl);
 
 			if (absPnl < executedPositionMargin) {
 				amountToReturnToUser += executedPositionMargin - absPnl;
 			}
 
 		} else {	
-			_debitTraderProfit(order.user, order.market, uint256(pnl));
+			pool.debitTraderProfit(order.user, order.market, uint256(pnl));
 			amountToReturnToUser += executedPositionMargin;
 		}
 
@@ -669,7 +507,7 @@ contract Cap {
 
         uint256 fee = position.size * market.fee / BPS_DIVIDER;
 
-        _creditFee(user, _market, fee, false);
+        pool.creditFee(user, _market, fee, false);
 
 		store.decrementOI(_market, position.size, position.isLong);
 		
@@ -760,8 +598,8 @@ contract Cap {
                 fee -= liquidatorFee;
                 liquidatorFees += liquidatorFee;
 
-                _creditTraderLoss(user, position.market, position.margin - fee - liquidatorFee);
-                _creditFee(user, position.market, fee, true);
+                pool.creditTraderLoss(user, position.market, position.margin - fee - liquidatorFee);
+                pool.creditFee(user, position.market, fee, true);
                 store.decrementOI(position.market, position.size, position.isLong);
                 _updateFundingTracker(position.market);
                 store.removePosition(user, position.market);
@@ -949,100 +787,9 @@ contract Cap {
 
     }
 
-    function _creditTraderLoss(
-		address user,  
-		string memory market,
-		uint256 amount
-	) internal {
-		
-		store.incrementBufferBalance(amount);
-
-		uint256 lastPaid = store.poolLastPaid();
-		uint256 _now = block.timestamp;
-
-		if (lastPaid == 0) {
-			store.setPoolLastPaid(_now);
-			return;
-		}
-
-		uint256 bufferBalance = store.bufferBalance();
-		uint256 bufferPayoutPeriod = store.bufferPayoutPeriod();
-
-		uint256 amountToSendPool = bufferBalance * (block.timestamp - lastPaid) / bufferPayoutPeriod;
-		
-		if (amountToSendPool > bufferBalance) amountToSendPool = bufferBalance;
-		
-		store.incrementPoolBalance(amountToSendPool);
-		store.decrementBufferBalance(amountToSendPool);
-		store.setPoolLastPaid(_now);
-
-        store.decrementBalance(user, amount);
-
-		emit PoolPayIn(
-			user,
-			market,
-			amount,
-			amountToSendPool,
-			store.poolBalance(),
-			store.bufferBalance()
-		);
-
-	}
-
-    function _debitTraderProfit(
-		address user, 
-		string memory market,
-		uint256 amount
-	) internal {
-
-		if (amount == 0) return;
-		
-		uint256 bufferBalance = store.bufferBalance();
-
-		store.decrementBufferBalance(amount);
-
-		if (amount > bufferBalance) {
-			uint256 diffToPayFromPool = amount - bufferBalance;
-			uint256 poolBalance = store.poolBalance();
-			require(diffToPayFromPool < poolBalance, "!pool-balance");
-			store.decrementPoolBalance(diffToPayFromPool);
-		}
-
-        store.incrementBalance(user, amount);
-		
-		emit PoolPayOut(
-			user,
-			market,
-			amount,
-			store.poolBalance(),
-			store.bufferBalance()
-		);
-
-	}
-
-    function _creditFee(
-		address user,
-		string memory market,
-		uint256 fee,
-		bool isLiquidation
-    ) internal {
-
-		if (fee == 0) return;
-
-		uint256 poolFee = fee * store.poolFeeShare() / BPS_DIVIDER;
-		uint256 treasuryFee = fee - poolFee;
-
-		store.incrementPoolBalance(poolFee);
-		store.incrementTreasuryBalance(treasuryFee);
-
-		emit FeePaid(
-			user, 
-			market,
-			fee, // paid by user
-			poolFee,
-			isLiquidation
-		);
-
+	modifier onlyGov() {
+        require(msg.sender == gov, '!gov');
+        _;
     }
-    
+
 }
