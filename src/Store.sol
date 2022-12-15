@@ -17,7 +17,7 @@ contract Store {
 
     address public gov;
     address public capContract;
-    address public asset;
+    address public currency;
     address public clp;
 
     uint256 public poolFeeShare; // in bps
@@ -29,6 +29,7 @@ contract Store {
      // Structs
 
     struct Market {
+        string symbol;
         address feed;
         uint256 maxLeverage;
         uint256 maxOI;
@@ -139,11 +140,11 @@ contract Store {
     // Methods
 
     function transferIn(address user, uint256 amount) external onlyContract {
-		IERC20(asset).safeTransferFrom(user, address(this), amount);
+		IERC20(currency).safeTransferFrom(user, address(this), amount);
 	}
 
     function transferOut(address user, uint256 amount) external onlyContract {
-        IERC20(asset).safeTransfer(user, amount);
+        IERC20(currency).safeTransfer(user, amount);
 	}
 
     function getCLPSupply() external view onlyContract returns(uint256) {

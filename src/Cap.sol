@@ -233,7 +233,7 @@ contract Cap {
 
     }
 
-    function submitOrder(Store.Order memory params) external {
+    function submitOrder(Store.Order memory params, uint256 tpPrice, uint256 slPrice) external {
 
         address user = msg.sender;
         
@@ -302,6 +302,66 @@ contract Cap {
             params.orderType,
             params.isReduceOnly
         );
+
+        if (tpPrice > 0) {
+            Store.Order memory tpOrder = Store.Order({
+                orderId: 0,
+                user: user,
+                market: params.market,
+                price: tpPrice,
+                isLong: !params.isLong,
+                isReduceOnly: true,
+                orderType: 1,
+                margin: 0,
+                size: params.size,
+                fee: params.fee,
+                timestamp: block.timestamp
+            });
+            store.decrementBalance(user, fee);
+            uint256 tpOrderId = store.addOrder(tpOrder);
+            emit OrderCreated(
+                tpOrderId,
+                tpOrder.user,
+                tpOrder.market,
+                tpOrder.isLong,
+                tpOrder.margin,
+                tpOrder.size,
+                tpOrder.price,
+                tpOrder.fee,
+                tpOrder.orderType,
+                tpOrder.isReduceOnly
+            );
+        }
+
+        if (slPrice > 0) {
+            Store.Order memory slOrder = Store.Order({
+                orderId: 0,
+                user: user,
+                market: params.market,
+                price: slPrice,
+                isLong: !params.isLong,
+                isReduceOnly: true,
+                orderType: 2,
+                margin: 0,
+                size: params.size,
+                fee: params.fee,
+                timestamp: block.timestamp
+            });
+            store.decrementBalance(user, fee);
+            uint256 slOrderId = store.addOrder(slOrder);
+            emit OrderCreated(
+                slOrderId,
+                slOrder.user,
+                slOrder.market,
+                slOrder.isLong,
+                slOrder.margin,
+                slOrder.size,
+                slOrder.price,
+                slOrder.fee,
+                slOrder.orderType,
+                slOrder.isReduceOnly
+            );
+        }
 
     }
 
