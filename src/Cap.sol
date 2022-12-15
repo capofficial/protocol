@@ -143,6 +143,7 @@ contract Cap {
     OK - trigger orders should execute at the chainlink price, not at their price
     OK - you need to give traders the option to close with no profit, and get their margin back, in case there is nothing / little in the pool
     OK - fee should be flat, no fee adjustments
+    - allow submitting TP/SL with an order
     - leave opportunity for deposits from a contract, as a sender, eg depositing ETH and getting funded in USDC directly
     OK - add gov methods to store
     - add MAX_FEE, etc vars in contract to limit gov powers
@@ -166,7 +167,7 @@ contract Cap {
         store.decrementBalance(user, amount);
 
         // check equity
-        int256 upl = _getUpl(user);
+        int256 upl = getUpl(user);
         uint256 balance = store.getBalance(user); // balance after decrement
         int256 equity = int256(balance) + upl;
         uint256 lockedMargin = store.getLockedMargin(user);
@@ -253,7 +254,7 @@ contract Cap {
         }
 
         // check equity
-        int256 upl = _getUpl(user);
+        int256 upl = getUpl(user);
         uint256 balance = store.getBalance(user);
         int256 equity = int256(balance) + upl;
         uint256 lockedMargin = store.getLockedMargin(user);
@@ -325,7 +326,7 @@ contract Cap {
         store.updateOrder(order);
     }
 
-    function cancelOrder(uint256 orderId) external {
+    function cancelOrder(uint256 orderId) public {
         Store.Order memory order = store.getOrder(orderId);
         require(order.user == msg.sender, "!user");
         require(order.size > 0, "!order");
@@ -340,6 +341,12 @@ contract Cap {
 			orderId, 
 			order.user
 		);
+    }
+
+    function cancelOrders(uint256[] calldata orderIds) external {
+        for (uint256 i = 0; i < orderIds.length; i++) {
+            cancelOrder(orderIds[i]);
+        }
     }
 
     function getExecutableOrderIds() public view returns(uint256[] memory orderIdsToExecute){
@@ -654,7 +661,7 @@ contract Cap {
         uint256 j = 0;
         for (uint256 i = 0; i < length; i++) {
             address user = store.getUserWithLockedMargin(i);
-            int256 equity = int256(store.getBalance(user)) + _getUpl(user);
+            int256 equity = int256(store.getBalance(user)) + getUpl(user);
             uint256 lockedMargin = store.getLockedMargin(user);
             uint256 marginLevel;
             if (equity <= 0) {
@@ -722,6 +729,53 @@ contract Cap {
 
     }
 
+    function getUserPositionsWithUpls(address user) external view returns(Store.Position[] memory _positions, int256[] memory _upls) {
+        _positions = store.getUserPositions(user);
+        uint256 length = _positions.length;
+        _upls = new int256[](length);
+        for (uint256 i = 0; i < length; i++) {
+            Store.Position memory position = _positions[i];
+
+            Store.Market memory market = store.getMarket(position.market);
+
+            uint256 chainlinkPrice = chainlink.getPrice(market.feed);
+            if (chainlinkPrice == 0) continue;
+
+            (int256 pnl, ) = _getPnL(
+                position.market, 
+                position.isLong, 
+                chainlinkPrice, 
+                position.price, 
+                position.size, 
+                position.fundingTracker
+            );
+
+            _upls[i] = pnl;
+
+        }
+
+        return (_positions, _upls);
+
+    }
+    
+    function getMarketsWithPrices() external view returns(Store.Market[] memory _markets, uint256[] memory _prices) {
+        
+        string[] memory marketList = store.getMarketList();
+        uint256 length = marketList.length;
+        _markets = new Store.Market[](length);
+        _prices = new uint256[](length);
+
+        for (uint256 i = 0; i < length; i++) {
+            Store.Market memory market = store.getMarket(marketList[i]);
+            uint256 chainlinkPrice = chainlink.getPrice(market.feed);
+            _markets[i] = market;
+            _prices[i] = chainlinkPrice;
+        }
+
+        return (_markets, _prices);
+
+    }
+
     function _getPnL(
 		string memory market,
 		bool isLong,
@@ -752,7 +806,7 @@ contract Cap {
 
 	}
 
-     function _getUpl(address user) internal view returns(int256 upl) {
+    function getUpl(address user) public view returns(int256 upl) {
 
         Store.Position[] memory positions = store.getUserPositions(user);
         for (uint256 j = 0; j < positions.length; j++) {
