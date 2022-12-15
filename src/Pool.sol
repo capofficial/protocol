@@ -212,7 +212,7 @@ contract Pool {
 		emit FeePaid(
 			user, 
 			market,
-			fee, // paid by user
+			fee, // paid by user //
 			poolFee,
 			isLiquidation
 		);
