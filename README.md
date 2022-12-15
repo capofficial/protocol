@@ -1,4 +1,4 @@
-# CAP v4 Soldiity Contracts
+# CAP v4 Solidity Contracts
 
 ## TODO
 
@@ -11,6 +11,7 @@
 - [ ] Add method to "depositAs" or "addLiquidityAs" e.g. to allow deposits from a contract like Uniswap Router, to allow people to deposit any asset which is then automatically converted into the Store supported currency
 - [ ] Add MAX_FEE and other variables in Store to limit gov powers
 - [ ] Add automated tests, including fuzzy, to achieve > 90% coverage
+- [ ] Create production deploy scripts
 
 ## Compiling
 
