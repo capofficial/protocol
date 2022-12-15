@@ -1,24 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.13;
 
-/*
-    TODO
-    OK - all orders including market should execute through keepers (anyone) either after 3min or if chainlink price is different
-    OK - trigger orders should execute at the chainlink price, not at their price
-    OK - you need to give traders the option to close with no profit, and get their margin back, in case there is nothing / little in the pool
-    OK - fee should be flat, no fee adjustments
-    OK - allow submitting TP/SL with an order
-    - split contract into Trade and Pool
-    - leave opportunity for deposits from a contract, as a sender, eg depositing ETH and getting funded in USDC directly
-    OK - add gov methods to store
-    - add MAX_FEE, etc vars in contract to limit gov powers
-
-    the above prevents front running and makes sure chainlink has time to update before executing an order. also prevents scalpers, attracts swing or long term traders. no need for min position holding time.
-
-    => the problem is people won't get the price that's displayed on the screen as entry
-    => it is what it is, this is because LPs are passive. It's like uniswap, you don't know exactly, you can get front-run
-    */
-
 import "./Chainlink.sol";
 import "./Store.sol";
 import "./Pool.sol";
