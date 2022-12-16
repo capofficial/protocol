@@ -4,7 +4,7 @@
 
 For details on how the margin / trading system works, please check the [Whitepaper](https://www.cap.finance/whitepaper.pdf), specifically sections 4 and 4.4. Liquidation Rebates and Interest Rate no longer apply.
 
-The items below are listed in priority order. All milestones are **ASAP**, with a target production launch date of **early January** on Arbitrum.
+The items below are listed in priority order. All milestones are **ASAP**, with a target production launch date of **early January** on Arbitrum. The driving factor is high quality, speed, and code simplicity.
  
 - [ ] Treasury fees should be paid out to a treasury address directly (set by gov)
 - [ ] If submitOrder margin exceeds freeMargin, set it to the max freeMargin available
