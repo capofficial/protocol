@@ -26,6 +26,7 @@ contract DeployLocalScript is Script {
 
     function run() public {
 
+        // this is the default mnemonic anvil uses
         string memory mnemonic = "test test test test test test test test test test test junk";   
         (address deployer,) = deriveRememberKey(mnemonic, 0); 
 
