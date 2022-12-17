@@ -246,7 +246,7 @@ contract Trade is ITrade {
                         || block.timestamp - order.timestamp > market.minSettlementTime
                 ) {
                     _orderIds[j] = order.orderId;
-                    j++;
+                    ++j;
                 }
             }
         }
@@ -506,7 +506,7 @@ contract Trade is ITrade {
     function getLiquidatableUsers() public view returns (address[] memory usersToLiquidate) {
         uint256 length = store.getUsersWithLockedMarginLength();
         address[] memory _users = new address[](length);
-        uint256 j = 0;
+        uint256 j;
         for (uint256 i = 0; i < length; i++) {
             address user = store.getUserWithLockedMargin(i);
             int256 equity = int256(store.getBalance(user)) + getUpl(user);
@@ -519,7 +519,7 @@ contract Trade is ITrade {
             }
             if (marginLevel < store.minimumMarginLevel()) {
                 _users[j] = user;
-                j++;
+                ++j;
             }
         }
         // Return trimmed result containing only users to be liquidated
