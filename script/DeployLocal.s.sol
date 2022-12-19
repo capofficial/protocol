@@ -24,8 +24,10 @@ contract DeployLocalScript is Script {
     function setUp() public {}
 
     function run() public {
-        string memory mnemonic = "test test test test test test test test test test test junk";
-        (address deployer,) = deriveRememberKey(mnemonic, 0);
+
+        // this is the default mnemonic anvil uses
+        string memory mnemonic = "test test test test test test test test test test test junk";   
+        (address deployer,) = deriveRememberKey(mnemonic, 0); 
 
         console.log("Deploying contracts with address", deployer);
         vm.startBroadcast(deployer);
