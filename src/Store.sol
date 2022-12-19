@@ -7,8 +7,6 @@ import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import "./CLP.sol";
 
 contract Store {
-    // TODO: send balance to treasury address
-
     using EnumerableSet for EnumerableSet.UintSet;
     using EnumerableSet for EnumerableSet.Bytes32Set;
     using EnumerableSet for EnumerableSet.AddressSet;
@@ -74,7 +72,6 @@ contract Store {
     uint256 public bufferBalance;
     uint256 public poolBalance;
     uint256 public poolLastPaid;
-    uint256 public treasuryBalance;
 
     uint256 public bufferPayoutPeriod = 7 days;
 
@@ -209,14 +206,6 @@ contract Store {
 
     function setPoolLastPaid(uint256 timestamp) external onlyContract {
         poolLastPaid = timestamp;
-    }
-
-    function incrementTreasuryBalance(uint256 amount) external onlyContract {
-        treasuryBalance += amount;
-    }
-
-    function decrementTreasuryBalance(uint256 amount) external onlyContract {
-        treasuryBalance -= amount;
     }
 
     function lockMargin(address user, uint256 amount) external onlyContract {

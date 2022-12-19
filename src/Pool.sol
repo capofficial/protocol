@@ -10,6 +10,7 @@ contract Pool {
 
     address public gov;
     address public trade;
+	address public treasury;
 
     Chainlink public chainlink;
     Store public store;
@@ -45,9 +46,10 @@ contract Pool {
         gov = _gov;
     }
 
-    function link(address _trade, address _store) external onlyGov {
+    function link(address _trade, address _store, address _treasury) external onlyGov {
         trade = _trade;
         store = Store(_store);
+		treasury = _treasury;
     }
 
     function addLiquidity(uint256 amount) external {
@@ -144,7 +146,7 @@ contract Pool {
         uint256 treasuryFee = fee - poolFee;
 
         store.incrementPoolBalance(poolFee);
-        store.incrementTreasuryBalance(treasuryFee);
+        store.transferOut(treasury, treasuryFee);
 
         emit FeePaid(
             user,

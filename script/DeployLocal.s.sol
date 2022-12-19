@@ -51,7 +51,7 @@ contract DeployLocalScript is Script {
         // Link
         store.link(address(trade), address(pool), address(usdc), address(clp));
         trade.link(address(chainlink), address(pool), address(store));
-        pool.link(address(trade), address(store));
+        pool.link(address(trade), address(store), address(this)); // assuming treasury = address(this)
         console.log("Contracts linked");
 
         // Setup markets
