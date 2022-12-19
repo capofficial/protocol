@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.13;
 
-import "./Chainlink.sol";
 import "./Store.sol";
 
 contract Pool {
@@ -12,7 +11,6 @@ contract Pool {
     address public trade;
 	address public treasury;
 
-    Chainlink public chainlink;
     Store public store;
 
     // Events
