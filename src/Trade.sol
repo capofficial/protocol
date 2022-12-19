@@ -22,6 +22,10 @@ contract Trade is ITrade {
         gov = msg.sender;
     }
 
+    function updateGov(address _gov) external onlyGov {
+        gov = _gov;
+    }
+
     function link(address _chainlink, address _pool, address _store) external onlyGov {
         chainlink = Chainlink(_chainlink);
         pool = Pool(_pool);

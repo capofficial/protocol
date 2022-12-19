@@ -108,6 +108,10 @@ contract Store {
         gov = msg.sender;
     }
 
+    function updateGov(address _gov) external onlyGov {
+        gov = _gov;
+    }
+
     function link(address _trade, address _pool, address _currency, address _clp) external onlyGov {
         trade = _trade;
         pool = _pool;
