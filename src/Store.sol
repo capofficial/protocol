@@ -12,7 +12,11 @@ contract Store {
     using EnumerableSet for EnumerableSet.AddressSet;
     using SafeERC20 for IERC20;
 
+    // constants
     uint256 public constant BPS_DIVIDER = 10000;
+    uint256 public constant MAX_FEE = 500; // in bps = 5%
+    uint256 public constant MAX_KEEPER_FEE_SHARE = 2000; // in bps = 20%
+    uint256 public constant MAX_POOL_WITHDRAWAL_FEE = 500; // in bps = 5%
 
     address public gov;
     address public currency;
@@ -79,8 +83,6 @@ contract Store {
     mapping(address => EnumerableSet.UintSet) private userOrderIds; // user => [order ids..]
     EnumerableSet.UintSet private orderIds; // [order ids..]
 
-    uint256 public constant MAX_FEE = 1000; // 10%
-
     string[] public marketList; // "ETH-USD", "BTC-USD", etc
     mapping(string => Market) private markets;
 
@@ -123,10 +125,12 @@ contract Store {
     }
 
     function setKeeperFeeShare(uint256 amount) external onlyGov {
+        require(amount <= MAX_KEEPER_FEE_SHARE, "!max-keeper-fee-share");
         keeperFeeShare = amount;
     }
 
     function setPoolWithdrawalFee(uint256 amount) external onlyGov {
+        require(amount <= MAX_POOL_WITHDRAWAL_FEE, "!max-pool-withdrawal-fee");
         poolWithdrawalFee = amount;
     }
 
