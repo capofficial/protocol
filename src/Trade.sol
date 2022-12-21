@@ -61,26 +61,35 @@ contract Trade is ITrade {
 
         Store.Market memory market = store.getMarket(params.market);
         require(market.maxLeverage > 0, "!market");
-        require(market.minSize <= params.size, "!min-size");
 
         if (params.isReduceOnly) {
             params.margin = 0;
         } else {
-            require(params.margin > 0, "!margin");
             uint256 leverage = UNIT * params.size / params.margin;
             require(leverage >= UNIT, "!min-leverage");
             require(leverage <= market.maxLeverage * UNIT, "!max-leverage");
 
+            // check equity
+            int256 upl = getUpl(user);
+            uint256 balance = store.getBalance(user);
+            int256 equity = int256(balance) + upl;
+
+            uint256 lockedMargin = store.getLockedMargin(user);
+            require(int256(lockedMargin) <= equity, "!equity");
+
+            // if margin exceeds freeMargin, set it to max freeMargin available
+            if (int256(lockedMargin + params.margin) > equity) {
+                params.margin = uint256(equity - int256(lockedMargin));
+                // adjust size so leverage stays the same
+                params.size = (leverage * params.margin) / UNIT;
+            }
+
+            require(params.margin > 0 && int256(lockedMargin + params.margin) <= equity, "!margin");
             store.lockMargin(user, params.margin);
         }
 
-        // check equity
-        int256 upl = getUpl(user);
-        uint256 balance = store.getBalance(user);
-        int256 equity = int256(balance) + upl;
-        uint256 lockedMargin = store.getLockedMargin(user);
-
-        require(int256(lockedMargin) <= equity, "!equity");
+        // size should be above market.minSize
+        require(market.minSize <= params.size, "!min-size");
 
         // fee
         uint256 fee = market.fee * params.size / BPS_DIVIDER;
