@@ -25,35 +25,38 @@ contract Chainlink {
 
     // -- Constructor -- //
 
-    constructor() {
-        sequencerUptimeFeed = AggregatorV3Interface(0xFdB631F5EE196F0ed6FAa767959853A9F217697D);
+    constructor(address sequencer) {
+        sequencerUptimeFeed = AggregatorV3Interface(sequencer);
     }
 
     function getPrice(address feed) public view returns (uint256) {
         if (feed == address(0)) return 0;
 
-        (
-            /*uint80 roundId*/
-            ,
-            int256 answer,
-            uint256 startedAt,
-            /*uint256 updatedAt*/
-            ,
-            /*uint80 answeredInRound*/
-        ) = sequencerUptimeFeed.latestRoundData();
+        // if we are not on a L2, skip sequencer check
+        if (address(sequencerUptimeFeed) != address(0)) {
+            (
+                /*uint80 roundId*/
+                ,
+                int256 answer,
+                uint256 startedAt,
+                /*uint256 updatedAt*/
+                ,
+                /*uint80 answeredInRound*/
+            ) = sequencerUptimeFeed.latestRoundData();
 
-        // Answer == 0: Sequencer is up
-        // Answer == 1: Sequencer is down
-        bool isSequencerUp = answer == 0;
-        if (!isSequencerUp) {
-            revert SequencerDown();
-        }
+            // Answer == 0: Sequencer is up
+            // Answer == 1: Sequencer is down
+            bool isSequencerUp = answer == 0;
+            if (!isSequencerUp) {
+                revert SequencerDown();
+            }
 
-        // Make sure the grace period has passed after the sequencer is back up.
-        uint256 timeSinceUp = block.timestamp - startedAt;
+            // Make sure the grace period has passed after the sequencer is back up.
+            uint256 timeSinceUp = block.timestamp - startedAt;
 
-        if (timeSinceUp <= GRACE_PERIOD_TIME) {
-            revert GracePeriodNotOver();
+            if (timeSinceUp <= GRACE_PERIOD_TIME) {
+                revert GracePeriodNotOver();
+            }
         }
 
         AggregatorV3Interface priceFeed = AggregatorV3Interface(feed);
