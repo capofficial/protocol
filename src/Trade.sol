@@ -63,7 +63,9 @@ contract Trade is ITrade {
         uint256 lockedMargin = store.getLockedMargin(user);
 
         if (int256(lockedMargin + params.margin) > equity) {
+            uint256 oldMargin = params.margin;
             params.margin = uint256(equity - int256(lockedMargin));
+            params.size = params.size * params.margin / oldMargin;
         }
 
         Store.Market memory market = store.getMarket(params.market);
