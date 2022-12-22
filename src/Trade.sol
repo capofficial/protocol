@@ -54,9 +54,18 @@ contract Trade is ITrade {
     }
 
 	function submitOrder(Store.Order memory params, uint256 tpPrice, uint256 slPrice) external {
-
         address user = msg.sender;
-        
+
+        // check equity
+        int256 upl = getUpl(user);
+        uint256 balance = store.getBalance(user);
+        int256 equity = int256(balance) + upl;
+        uint256 lockedMargin = store.getLockedMargin(user);
+
+        if (int256(lockedMargin + params.margin) > equity) {
+            params.margin = uint256(equity - int256(lockedMargin));
+        }
+
         Store.Market memory market = store.getMarket(params.market);
         require(market.maxLeverage > 0, "!market");
         require(market.minSize <= params.size, "!min-size");
@@ -70,16 +79,7 @@ contract Trade is ITrade {
             require(leverage <= market.maxLeverage * UNIT, "!max-leverage");
 
             store.lockMargin(user, params.margin);
-            
         }
-
-        // check equity
-        int256 upl = getUpl(user);
-        uint256 balance = store.getBalance(user);
-        int256 equity = int256(balance) + upl;
-        uint256 lockedMargin = store.getLockedMargin(user);
-
-        require(int256(lockedMargin) <= equity, "!equity");
 
         // fee
         uint256 fee = market.fee * params.size / BPS_DIVIDER;
