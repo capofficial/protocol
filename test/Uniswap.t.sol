@@ -3,8 +3,7 @@ pragma solidity ^0.8.13;
 
 import "./Setup.t.sol";
 
-// todo: maybe check price with chainlink?
-contract SwapRouter is SetupTest {
+contract UniswapTest is SetupTest {
     uint256 arbitrum;
     uint256 optimism;
     uint256 polygon;
@@ -13,9 +12,10 @@ contract SwapRouter is SetupTest {
     string OPTIMISM_RPC_URL = vm.envString("OPTIMISM_RPC_URL");
     string POLYGON_RPC_URL = vm.envString("POLYGON_RPC_URL");
 
-    // Uniswap Router for Polygon, Arbitrum and Optimism
+    // Uniswap Router and Quoter for Polygon, Arbitrum and Optimism
     // see also https://docs.uniswap.org/contracts/v3/reference/deployments
     address swapRouter = address(0xE592427A0AEce92De3Edee1F18E0157C05861564);
+    address quoter = address(0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6);
 
     // Deployment addresses for USDC
     address PolygonUSDC = address(0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174);
@@ -39,19 +39,17 @@ contract SwapRouter is SetupTest {
         polygon = vm.createFork(POLYGON_RPC_URL);
     }
 
-    function testNetworks() public {
-        // test adding liquidity
-        _addLiquidity(arbitrum, "Arbitrum", ArbitrumUSDC, ArbitrumDAI, ArbitrumWETH);
-        _addLiquidity(optimism, "Optimism", OptimismUSDC, OptimismDAI, OptimismWETH);
-        _addLiquidity(polygon, "Polygon", PolygonUSDC, PolygonDAI, PolygonWMATIC);
+    function testQuoter() public {
+        console.log("-----------------------");
+        console.log("Output token = USDC");
+        console.log("-----------------------");
 
-        // test depositing
-        _deposit(arbitrum, "Arbitrum", ArbitrumUSDC, ArbitrumDAI, ArbitrumWETH);
-        _deposit(optimism, "Optimism", OptimismUSDC, OptimismDAI, OptimismWETH);
-        _deposit(polygon, "Polygon", PolygonUSDC, PolygonDAI, PolygonWMATIC);
+        _getEstimatedOutput(arbitrum, "Arbitrum", ArbitrumUSDC, ArbitrumDAI, ArbitrumWETH);
+        _getEstimatedOutput(optimism, "Optimism", OptimismUSDC, OptimismDAI, OptimismWETH);
+        _getEstimatedOutput(polygon, "Polygon", PolygonUSDC, PolygonDAI, PolygonWMATIC);
     }
 
-    function _addLiquidity(uint256 fork, string memory name, address usdc, address dai, address weth) public {
+    function _getEstimatedOutput(uint256 fork, string memory name, address usdc, address dai, address weth) internal {
         vm.selectFork(fork);
         console.log(name);
         // deploy contracts
@@ -60,7 +58,47 @@ contract SwapRouter is SetupTest {
 
         // link SwapRouter address and USDC address
         store.link(address(trade), address(pool), usdc, address(clp));
-        store.linkUniswap(swapRouter, weth);
+        store.linkUniswap(swapRouter, quoter, weth);
+
+        vm.stopPrank();
+
+        // get estimated output tokens for 1 WETH (or 1 Matic on Polygon)
+        console.log("Estimated output for 1 WETH:", store.getEstimatedOutputTokens(1 ether, weth, 500));
+
+        // get estimated output for 1000 DAI input
+
+        // DAI/USDC poolFee on Arbitrum is 0.05%
+        uint24 poolFee;
+        if (fork == arbitrum) poolFee = 500;
+        else poolFee = 100;
+        console.log("Estimated output for 1000 DAI:", store.getEstimatedOutputTokens(1000 ether, dai, poolFee));
+        console.log("-----------------------");
+    }
+
+    function testAddLiquidity() public {
+        // test adding liquidity
+        _addLiquidity(arbitrum, "Arbitrum", ArbitrumUSDC, ArbitrumDAI, ArbitrumWETH);
+        _addLiquidity(optimism, "Optimism", OptimismUSDC, OptimismDAI, OptimismWETH);
+        _addLiquidity(polygon, "Polygon", PolygonUSDC, PolygonDAI, PolygonWMATIC);
+    }
+
+    function testDeposit() public {
+        // test depositing
+        _deposit(arbitrum, "Arbitrum", ArbitrumUSDC, ArbitrumDAI, ArbitrumWETH);
+        _deposit(optimism, "Optimism", OptimismUSDC, OptimismDAI, OptimismWETH);
+        _deposit(polygon, "Polygon", PolygonUSDC, PolygonDAI, PolygonWMATIC);
+    }
+
+    function _addLiquidity(uint256 fork, string memory name, address usdc, address dai, address weth) internal {
+        vm.selectFork(fork);
+        console.log(name);
+        // deploy contracts
+        super.setUp();
+        vm.startPrank(deployer);
+
+        // link SwapRouter address and USDC address
+        store.link(address(trade), address(pool), usdc, address(clp));
+        store.linkUniswap(swapRouter, quoter, weth);
 
         vm.stopPrank();
 
@@ -94,7 +132,7 @@ contract SwapRouter is SetupTest {
         console.log("-----------------------");
     }
 
-    function _deposit(uint256 fork, string memory name, address usdc, address dai, address weth) public {
+    function _deposit(uint256 fork, string memory name, address usdc, address dai, address weth) internal {
         vm.selectFork(fork);
         console.log(name);
         // deploy contracts
@@ -103,7 +141,7 @@ contract SwapRouter is SetupTest {
 
         // link SwapRouter address and USDC address
         store.link(address(trade), address(pool), usdc, address(clp));
-        store.linkUniswap(swapRouter, weth);
+        store.linkUniswap(swapRouter, quoter, weth);
 
         vm.stopPrank();
 

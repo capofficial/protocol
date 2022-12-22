@@ -4,6 +4,7 @@ pragma solidity ^0.8.13;
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
+import "@uniswap/v3-periphery/contracts/interfaces/IQuoter.sol";
 
 import "./CLP.sol";
 
@@ -24,6 +25,7 @@ contract Store {
     address public clp;
 
     address public swapRouter;
+    address public quoter;
     address public weth;
 
     // contracts
@@ -123,8 +125,9 @@ contract Store {
     }
 
     // _weth = WMATIC on Polygon
-    function linkUniswap(address _swapRouter, address _weth) external onlyGov {
+    function linkUniswap(address _swapRouter, address _quoter, address _weth) external onlyGov {
         swapRouter = _swapRouter;
+        quoter = _quoter;
         weth = _weth;
     }
 
@@ -183,7 +186,6 @@ contract Store {
         CLP(clp).mint(user, amount);
     }
 
-    // todo: get pool fee on chain? calculate amountOutMinimum on chain?
     function swapExactInputSingle(address user, uint256 amountIn, address inToken, uint24 poolFee)
         external
         payable
@@ -215,6 +217,15 @@ contract Store {
 
         // The call to `exactInputSingle` executes the swap.
         amountOut = ISwapRouter(swapRouter).exactInputSingle{value: msg.value}(params);
+    }
+
+    // Function is not marked as view because it relies on calling non-view functions
+    // Not gas efficient so shouldnt be called on-chain
+    function getEstimatedOutputTokens(uint256 amountIn, address inToken, uint24 poolFee)
+        external
+        returns (uint256 amountOut)
+    {
+        return IQuoter(quoter).quoteExactInputSingle(inToken, currency, poolFee, amountIn, 0);
     }
 
     function incrementBalance(address user, uint256 amount) external onlyContract {
