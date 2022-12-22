@@ -7,7 +7,6 @@ For details on how the margin / trading system works, please check the [Whitepap
 The items below are listed in priority order. All milestones are **ASAP**, with a target production launch date of **early January** on Arbitrum. The driving factor is high quality, speed, and code simplicity.
  
 - [ ] Add automated tests, including fuzzy, to achieve > 90% coverage
-- [ ] Add methods "depositThroughUniswap" and "addLiquidityThroughUniswap" to allow deposits from a contract like Uniswap Router, to allow people to deposit any asset which is then automatically converted into the Store-supported currency. Potentially support other DEXes like 1inch.
 - [ ] Refactor code while maintaining readability
 - [ ] Run auditing tools, get more eyes on the contracts
 - [ ] Deploy and test locally with the [UI](https://github.com/capofficial/ui) to make sure everything is working as expected
@@ -15,6 +14,7 @@ The items below are listed in priority order. All milestones are **ASAP**, with 
 
 ## Done
 
+- [x] Add methods "depositThroughUniswap" and "addLiquidityThroughUniswap" to allow deposits from a contract like Uniswap Router, to allow people to deposit any asset which is then automatically converted into the Store-supported currency. Potentially support other DEXes like 1inch.
 - [x] Verify Chainlink contract works as expected for Arbitrum and its sequencer. Support all other Chainlink networks (or have a custom Chainlink contract for each chain)
 - [x] If submitOrder margin exceeds freeMargin, set it to the max freeMargin available
 - [x] Treasury fees should be paid out to a treasury address directly (set by gov)

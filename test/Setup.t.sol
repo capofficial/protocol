@@ -30,32 +30,32 @@ contract SetupTest is Test {
         string memory mnemonic = "test test test test test test test test test test test junk";
         (deployer,) = deriveRememberKey(mnemonic, 0);
 
-        console.log("Deploying contracts with address", deployer);
-        vm.prank(deployer);
+        //console.log("Deploying contracts with address", deployer);
+        vm.startPrank(deployer);
 
         usdc = new MockToken("USDC", "USDC", 6);
-        console.log("USDC token deployed to", address(usdc));
+        //console.log("USDC token deployed to", address(usdc));
 
         chainlink = new MockChainlink();
-        console.log("Chainlink deployed to", address(chainlink));
+        //console.log("Chainlink deployed to", address(chainlink));
 
         store = new Store();
-        console.log("Store deployed to", address(store));
+        //console.log("Store deployed to", address(store));
 
         trade = new Trade();
-        console.log("Trade deployed to", address(trade));
+        //console.log("Trade deployed to", address(trade));
 
         pool = new Pool();
-        console.log("Pool deployed to", address(pool));
+        //console.log("Pool deployed to", address(pool));
 
         clp = new CLP(address(store));
-        console.log("CLP deployed to", address(clp));
+        //console.log("CLP deployed to", address(clp));
 
         // Link
         store.link(address(trade), address(pool), address(usdc), address(clp));
         trade.link(address(chainlink), address(pool), address(store));
         pool.link(address(trade), address(store), address(this)); // assuming treasury = address(this)
-        console.log("Contracts linked");
+        //console.log("Contracts linked");
 
         // Setup markets
         store.setMarket(
@@ -85,38 +85,38 @@ contract SetupTest is Test {
             })
         );
 
-        console.log("Markets set up.");
+        //console.log("Markets set up.");
 
         // Mint and approve some mock USDC
 
         usdc.mint(1000000 * CURRENCY_UNIT);
         usdc.approve(address(store), 10 ** 9 * CURRENCY_UNIT);
 
-        console.log("Minted mock tokens for deployer account.");
+        //console.log("Minted mock tokens for deployer account.");
 
         vm.stopPrank();
 
         (user,) = deriveRememberKey(mnemonic, 2);
-        console.log("Minting tokens with account", user);
+        //console.log("Minting tokens with account", user);
         vm.startPrank(user);
 
         // To user
         usdc.mint(1000000 * CURRENCY_UNIT);
         usdc.approve(address(store), 10 ** 9 * CURRENCY_UNIT);
 
-        console.log("Minted mock tokens for user account.");
+        //console.log("Minted mock tokens for user account.");
 
         vm.stopPrank();
 
         (user2,) = deriveRememberKey(mnemonic, 1);
-        console.log("Minting tokens with account", user2);
+        //console.log("Minting tokens with account", user2);
         vm.startPrank(user2);
 
         // To user2
         usdc.mint(1000000 * CURRENCY_UNIT);
         usdc.approve(address(store), 10 ** 9 * CURRENCY_UNIT);
 
-        console.log("Minted mock tokens for second user account.");
+        //console.log("Minted mock tokens for second user account.");
 
         vm.stopPrank();
     }

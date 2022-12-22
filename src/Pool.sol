@@ -9,7 +9,7 @@ contract Pool {
 
     address public gov;
     address public trade;
-	address public treasury;
+    address public treasury;
 
     Store public store;
 
@@ -35,7 +35,6 @@ contract Pool {
     event FeePaid(address indexed user, string market, uint256 fee, uint256 poolFee, bool isLiquidation);
 
     // Methods
-
     constructor() {
         gov = msg.sender;
     }
@@ -47,7 +46,29 @@ contract Pool {
     function link(address _trade, address _store, address _treasury) external onlyGov {
         trade = _trade;
         store = Store(_store);
-		treasury = _treasury;
+        treasury = _treasury;
+    }
+
+    function addLiquidityThroughUniswap(address inToken, uint256 amountIn, uint24 poolFee) external payable {
+        if (msg.value == 0) {
+            require(amountIn > 0, "!amount");
+            require(inToken != address(0), "!address");
+        }
+
+        address user = msg.sender;
+
+        // executes swap, tokens will be deposited to store contract
+        uint256 amountOut = store.swapExactInputSingle{value: msg.value}(user, amountIn, inToken, poolFee);
+
+        // add store supported liquidity
+        uint256 balance = store.poolBalance();
+        uint256 clpSupply = store.getCLPSupply();
+        uint256 clpAmount = balance == 0 || clpSupply == 0 ? amountOut : amountOut * clpSupply / balance;
+
+        store.mintCLP(user, clpAmount);
+        store.incrementPoolBalance(amountOut);
+
+        emit AddLiquidity(user, amountOut, clpAmount, store.poolBalance());
     }
 
     function addLiquidity(uint256 amount) external {

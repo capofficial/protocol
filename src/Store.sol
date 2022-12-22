@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
 
 import "./CLP.sol";
 
@@ -21,6 +22,9 @@ contract Store {
     address public gov;
     address public currency;
     address public clp;
+
+    address public swapRouter;
+    address public weth;
 
     // contracts
     address public trade;
@@ -118,6 +122,12 @@ contract Store {
         clp = _clp;
     }
 
+    // _weth = WMATIC on Polygon
+    function linkUniswap(address _swapRouter, address _weth) external onlyGov {
+        swapRouter = _swapRouter;
+        weth = _weth;
+    }
+
     // Gov methods
 
     function setPoolFeeShare(uint256 amount) external onlyGov {
@@ -171,6 +181,40 @@ contract Store {
 
     function burnCLP(address user, uint256 amount) external onlyContract {
         CLP(clp).mint(user, amount);
+    }
+
+    // todo: get pool fee on chain? calculate amountOutMinimum on chain?
+    function swapExactInputSingle(address user, uint256 amountIn, address inToken, uint24 poolFee)
+        external
+        payable
+        onlyContract
+        returns (uint256 amountOut)
+    {
+        require(address(swapRouter) != address(0), "!swapRouter");
+
+        if (msg.value != 0) {
+            // there are no direct ETH pairs in Uniswapv3, so router converts ETH to WETH before swap
+            inToken = weth;
+            amountIn = msg.value;
+        } else {
+            // transfer token to be swapped
+            IERC20(inToken).safeTransferFrom(user, address(this), amountIn);
+            IERC20(inToken).safeApprove(address(swapRouter), amountIn);
+        }
+
+        ISwapRouter.ExactInputSingleParams memory params = ISwapRouter.ExactInputSingleParams({
+            tokenIn: inToken,
+            tokenOut: currency, // store supported currency
+            fee: poolFee,
+            recipient: address(this),
+            deadline: block.timestamp + 15,
+            amountIn: amountIn,
+            amountOutMinimum: 0,
+            sqrtPriceLimitX96: 0
+        });
+
+        // The call to `exactInputSingle` executes the swap.
+        amountOut = ISwapRouter(swapRouter).exactInputSingle{value: msg.value}(params);
     }
 
     function incrementBalance(address user, uint256 amount) external onlyContract {
