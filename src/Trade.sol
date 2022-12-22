@@ -1,12 +1,17 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.13;
 
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
 import "./Chainlink.sol";
 import "./Store.sol";
 import "./Pool.sol";
 import "./interfaces/ITrade.sol";
+import "./interfaces/IUniswapV2Router02.sol";
 
 contract Trade is ITrade {
+
+    using SafeERC20 for IERC20;
 
 	uint256 public constant UNIT = 10**18;
     uint256 public constant BPS_DIVIDER = 10000;
@@ -16,6 +21,7 @@ contract Trade is ITrade {
 	Chainlink public chainlink;
     Pool public pool;
     Store public store;
+    IUniswapV2Router02 public router;
 
 	// Methods
 
@@ -23,10 +29,11 @@ contract Trade is ITrade {
         gov = msg.sender;
     }
 
-    function link(address _chainlink, address _pool, address _store) external onlyGov {
+    function link(address _chainlink, address _pool, address _store, address _router) external onlyGov {
         chainlink = Chainlink(_chainlink);
         pool = Pool(_pool);
         store = Store(_store);
+        router = IUniswapV2Router02(_router);
     }
 
 	function deposit(uint256 amount) external {
@@ -35,7 +42,46 @@ contract Trade is ITrade {
         store.incrementBalance(msg.sender, amount);
         emit Deposit(msg.sender, amount);
     }
-    
+
+    function depositThroughUniswap(uint256 amountIn, address[] memory path) external payable {
+        require(path.length > 1, "!path");
+        require(amountIn > 0, "!amountIn");
+
+        require(path[path.length - 1] == store.currency(), "!currency");
+
+        address inputCurrency = path[0];
+        if (msg.value > 0) {
+            require(amountIn == msg.value, "!msg.value");
+        } else {
+            IERC20(inputCurrency).safeTransferFrom(msg.sender, address(this), amountIn);
+            IERC20(inputCurrency).approve(address(router), amountIn);
+        }
+
+        uint256[] memory amountsOut;
+        if (msg.value > 0) {
+            amountsOut = router.swapExactETHForTokens{
+                value: amountIn
+            }(
+                0,
+                path,
+                address(store),
+                block.timestamp
+            );
+        } else {
+            amountsOut = router.swapExactTokensForTokens(
+                amountIn,
+                0,
+                path,
+                address(store),
+                block.timestamp
+            );
+        }
+
+        uint256 amount = amountsOut[amountsOut.length - 1];
+        store.incrementBalance(msg.sender, amount);
+        emit Deposit(msg.sender, amount);
+    }
+
     function withdraw(uint256 amount) external {
         require(amount > 0, "!amount");
         address user = msg.sender;
