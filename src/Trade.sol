@@ -8,6 +8,7 @@ import "./Store.sol";
 import "./Pool.sol";
 import "./interfaces/ITrade.sol";
 import "./interfaces/IUniswapV2Router02.sol";
+import "./interfaces/IUniswapV2Factory.sol";
 
 contract Trade is ITrade {
 
@@ -43,7 +44,13 @@ contract Trade is ITrade {
         emit Deposit(msg.sender, amount);
     }
 
-    function depositThroughUniswap(uint256 amountIn, address[] memory path) external payable {
+    function depositThroughUniswap(
+        uint256 amountIn,
+        address[] memory path
+    )
+        external
+        payable
+    {
         require(path.length > 1, "!path");
         require(amountIn > 0, "!amountIn");
 
@@ -80,6 +87,69 @@ contract Trade is ITrade {
         uint256 amount = amountsOut[amountsOut.length - 1];
         store.incrementBalance(msg.sender, amount);
         emit Deposit(msg.sender, amount);
+    }
+
+    function addLiquidityThroughUniswap(
+        address tokenA,
+        address tokenB,
+        uint256 amountA,
+        uint256 amountB
+    )
+        external
+        payable
+    {
+        IUniswapV2Factory factor = IUniswapV2Factory(router.factory());
+        require(factor.getPair(tokenA, tokenB) == store.currency(), "!currency");
+
+        if (msg.value > 0) {
+            require(amountA == msg.value, "!msg.value");
+            require(tokenA == router.WETH(), "!tokenA");
+        } else {
+            IERC20(tokenA).safeTransferFrom(msg.sender, address(this), amountA);
+            IERC20(tokenA).approve(address(router), amountA);
+        }
+        IERC20(tokenB).safeTransferFrom(msg.sender, address(this), amountB);
+        IERC20(tokenB).approve(address(router), amountB);
+
+        uint256 amountAUsed;
+        uint256 amountBUsed;
+        uint256 liquidity;
+        if (msg.value > 0) {
+            (amountBUsed, amountAUsed, liquidity) = router.addLiquidityETH{
+                value: amountA
+            }(
+                tokenB,
+                amountB,
+                0,
+                0,
+                address(store),
+                block.timestamp
+            );
+            if (amountA > amountAUsed) {
+                payable(msg.sender).transfer(amountA - amountAUsed);
+            }
+        } else {
+            (amountAUsed, amountBUsed, liquidity) = router.addLiquidity(
+                tokenA,
+                tokenB,
+                amountA,
+                amountB,
+                0,
+                0,
+                address(store),
+                block.timestamp
+            );
+            if (amountA > amountAUsed) {
+                IERC20(tokenB).transfer(msg.sender, amountA - amountAUsed);
+            }
+        }
+
+        if (amountB > amountBUsed) {
+            IERC20(tokenB).transfer(msg.sender, amountB - amountBUsed);
+        }
+
+        store.incrementBalance(msg.sender, liquidity);
+        emit Deposit(msg.sender, liquidity);
     }
 
     function withdraw(uint256 amount) external {
