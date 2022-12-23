@@ -100,6 +100,7 @@ contract Trade is ITrade {
     {
         IUniswapV2Factory factor = IUniswapV2Factory(router.factory());
         require(factor.getPair(tokenA, tokenB) == store.currency(), "!currency");
+        require(amountA > 0 && amountB > 0, "!amount");
 
         if (msg.value > 0) {
             require(amountA == msg.value, "!msg.value");
