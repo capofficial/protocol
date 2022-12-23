@@ -1,12 +1,18 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.13;
 
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
 import "./Chainlink.sol";
 import "./Store.sol";
 import "./Pool.sol";
 import "./interfaces/ITrade.sol";
+import "./interfaces/IUniswapV2Router02.sol";
+import "./interfaces/IUniswapV2Factory.sol";
 
 contract Trade is ITrade {
+
+    using SafeERC20 for IERC20;
 
 	uint256 public constant UNIT = 10**18;
     uint256 public constant BPS_DIVIDER = 10000;
@@ -16,6 +22,7 @@ contract Trade is ITrade {
 	Chainlink public chainlink;
     Pool public pool;
     Store public store;
+    IUniswapV2Router02 public router;
 
 	// Methods
 
@@ -23,10 +30,11 @@ contract Trade is ITrade {
         gov = msg.sender;
     }
 
-    function link(address _chainlink, address _pool, address _store) external onlyGov {
+    function link(address _chainlink, address _pool, address _store, address _router) external onlyGov {
         chainlink = Chainlink(_chainlink);
         pool = Pool(_pool);
         store = Store(_store);
+        router = IUniswapV2Router02(_router);
     }
 
 	function deposit(uint256 amount) external {
@@ -35,7 +43,116 @@ contract Trade is ITrade {
         store.incrementBalance(msg.sender, amount);
         emit Deposit(msg.sender, amount);
     }
-    
+
+    function depositThroughUniswap(
+        uint256 amountIn,
+        address[] memory path
+    )
+        external
+        payable
+    {
+        require(path.length > 1, "!path");
+        require(amountIn > 0, "!amountIn");
+
+        require(path[path.length - 1] == store.currency(), "!currency");
+
+        address inputCurrency = path[0];
+        if (msg.value > 0) {
+            require(amountIn == msg.value, "!msg.value");
+        } else {
+            IERC20(inputCurrency).safeTransferFrom(msg.sender, address(this), amountIn);
+            IERC20(inputCurrency).approve(address(router), amountIn);
+        }
+
+        uint256[] memory amountsOut;
+        if (msg.value > 0) {
+            amountsOut = router.swapExactETHForTokens{
+                value: amountIn
+            }(
+                0,
+                path,
+                address(store),
+                block.timestamp
+            );
+        } else {
+            amountsOut = router.swapExactTokensForTokens(
+                amountIn,
+                0,
+                path,
+                address(store),
+                block.timestamp
+            );
+        }
+
+        uint256 amount = amountsOut[amountsOut.length - 1];
+        store.incrementBalance(msg.sender, amount);
+        emit Deposit(msg.sender, amount);
+    }
+
+    function addLiquidityThroughUniswap(
+        address tokenA,
+        address tokenB,
+        uint256 amountA,
+        uint256 amountB
+    )
+        external
+        payable
+    {
+        IUniswapV2Factory factor = IUniswapV2Factory(router.factory());
+        require(factor.getPair(tokenA, tokenB) == store.currency(), "!currency");
+        require(amountA > 0 && amountB > 0, "!amount");
+
+        if (msg.value > 0) {
+            require(amountA == msg.value, "!msg.value");
+            require(tokenA == router.WETH(), "!tokenA");
+        } else {
+            IERC20(tokenA).safeTransferFrom(msg.sender, address(this), amountA);
+            IERC20(tokenA).approve(address(router), amountA);
+        }
+        IERC20(tokenB).safeTransferFrom(msg.sender, address(this), amountB);
+        IERC20(tokenB).approve(address(router), amountB);
+
+        uint256 amountAUsed;
+        uint256 amountBUsed;
+        uint256 liquidity;
+        if (msg.value > 0) {
+            (amountBUsed, amountAUsed, liquidity) = router.addLiquidityETH{
+                value: amountA
+            }(
+                tokenB,
+                amountB,
+                0,
+                0,
+                address(store),
+                block.timestamp
+            );
+            if (amountA > amountAUsed) {
+                payable(msg.sender).transfer(amountA - amountAUsed);
+            }
+        } else {
+            (amountAUsed, amountBUsed, liquidity) = router.addLiquidity(
+                tokenA,
+                tokenB,
+                amountA,
+                amountB,
+                0,
+                0,
+                address(store),
+                block.timestamp
+            );
+            if (amountA > amountAUsed) {
+                IERC20(tokenB).transfer(msg.sender, amountA - amountAUsed);
+            }
+        }
+
+        if (amountB > amountBUsed) {
+            IERC20(tokenB).transfer(msg.sender, amountB - amountBUsed);
+        }
+
+        store.incrementBalance(msg.sender, liquidity);
+        emit Deposit(msg.sender, liquidity);
+    }
+
     function withdraw(uint256 amount) external {
         require(amount > 0, "!amount");
         address user = msg.sender;
@@ -54,9 +171,20 @@ contract Trade is ITrade {
     }
 
 	function submitOrder(Store.Order memory params, uint256 tpPrice, uint256 slPrice) external {
-
         address user = msg.sender;
-        
+
+        // check equity
+        int256 upl = getUpl(user);
+        uint256 balance = store.getBalance(user);
+        int256 equity = int256(balance) + upl;
+        uint256 lockedMargin = store.getLockedMargin(user);
+
+        if (int256(lockedMargin + params.margin) > equity) {
+            uint256 oldMargin = params.margin;
+            params.margin = uint256(equity - int256(lockedMargin));
+            params.size = params.size * params.margin / oldMargin;
+        }
+
         Store.Market memory market = store.getMarket(params.market);
         require(market.maxLeverage > 0, "!market");
         require(market.minSize <= params.size, "!min-size");
@@ -70,16 +198,7 @@ contract Trade is ITrade {
             require(leverage <= market.maxLeverage * UNIT, "!max-leverage");
 
             store.lockMargin(user, params.margin);
-            
         }
-
-        // check equity
-        int256 upl = getUpl(user);
-        uint256 balance = store.getBalance(user);
-        int256 equity = int256(balance) + upl;
-        uint256 lockedMargin = store.getLockedMargin(user);
-
-        require(int256(lockedMargin) <= equity, "!equity");
 
         // fee
         uint256 fee = market.fee * params.size / BPS_DIVIDER;

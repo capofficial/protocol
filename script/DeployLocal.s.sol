@@ -53,7 +53,7 @@ contract DeployLocalScript is Script {
 
         // Link
         store.link(address(trade), address(pool), address(usdc), address(clp));
-        trade.link(address(chainlink), address(pool), address(store));
+        trade.link(address(chainlink), address(pool), address(store), 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
         pool.link(address(trade), address(store));
         console.log("Contracts linked");
 
