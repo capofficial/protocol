@@ -5,8 +5,7 @@
 For details on how the margin / trading system works, please check the [Whitepaper](https://www.cap.finance/whitepaper.pdf), specifically sections 4 and 4.4. Liquidation Rebates and Interest Rate no longer apply.
 
 The items below are listed in priority order. All milestones are **ASAP**, with a target production launch date of **early January** on Arbitrum. The driving factor is high quality, speed, and code simplicity.
- 
-- [ ] Treasury fees should be paid out to a treasury address directly (set by gov)
+
 - [ ] If submitOrder margin exceeds freeMargin, set it to the max freeMargin available
 - [ ] Add MAX_FEE and other constants in Store to curtail gov powers in methods marked with onlyGov. The goal is to prevent gov from having too much power over system function, like setting a fee share too high and siphoning all the funds.
 - [ ] Add automated tests, including fuzzy, to achieve > 90% coverage
@@ -25,7 +24,7 @@ The items below are listed in priority order. All milestones are **ASAP**, with 
 - [x] Flat fee
 - [x] Allow submitting TP/SL with an order
 - [x] Contracts: Trade, Pool, Store, Chainlink
-
+- [x] Treasury fees should be paid out to a treasury address directly (set by gov)
 
 ## Compiling
 

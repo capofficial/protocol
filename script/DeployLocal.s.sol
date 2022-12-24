@@ -11,7 +11,6 @@ import "../src/mocks/MockChainlink.sol";
 import "../src/mocks/MockToken.sol";
 
 contract DeployLocalScript is Script {
-
     uint256 public constant CURRENCY_UNIT = 10**6;
 
     Trade public trade;
@@ -25,10 +24,10 @@ contract DeployLocalScript is Script {
     function setUp() public {}
 
     function run() public {
-
         // this is the default mnemonic anvil uses
-        string memory mnemonic = "test test test test test test test test test test test junk";   
-        (address deployer,) = deriveRememberKey(mnemonic, 0); 
+        string
+            memory mnemonic = "test test test test test test test test test test test junk";
+        (address deployer, ) = deriveRememberKey(mnemonic, 0);
 
         console.log("Deploying contracts with address", deployer);
         vm.startBroadcast(deployer);
@@ -58,26 +57,32 @@ contract DeployLocalScript is Script {
         console.log("Contracts linked");
 
         // Setup markets
-        store.setMarket("ETH-USD", Store.Market({
-            symbol: "ETH-USD",
-            feed: address(0),
-            maxLeverage: 50,
-            maxOI: 5000000 * CURRENCY_UNIT,
-            fee: 100,
-            fundingFactor: 5000,
-            minSize: 20 * CURRENCY_UNIT,
-            minSettlementTime: 1 minutes
-        }));
-        store.setMarket("BTC-USD", Store.Market({
-            symbol: "BTC-USD",
-            feed: address(0),
-            maxLeverage: 50,
-            maxOI: 5000000 * CURRENCY_UNIT,
-            fee: 100,
-            fundingFactor: 5000,
-            minSize: 20 * CURRENCY_UNIT,
-            minSettlementTime: 1 minutes
-        }));
+        store.setMarket(
+            "ETH-USD",
+            Store.Market({
+                symbol: "ETH-USD",
+                feed: address(0),
+                maxLeverage: 50,
+                maxOI: 5000000 * CURRENCY_UNIT,
+                fee: 100,
+                fundingFactor: 5000,
+                minSize: 20 * CURRENCY_UNIT,
+                minSettlementTime: 1 minutes
+            })
+        );
+        store.setMarket(
+            "BTC-USD",
+            Store.Market({
+                symbol: "BTC-USD",
+                feed: address(0),
+                maxLeverage: 50,
+                maxOI: 5000000 * CURRENCY_UNIT,
+                fee: 100,
+                fundingFactor: 5000,
+                minSize: 20 * CURRENCY_UNIT,
+                minSettlementTime: 1 minutes
+            })
+        );
 
         console.log("Markets set up.");
 
@@ -90,7 +95,7 @@ contract DeployLocalScript is Script {
 
         vm.stopBroadcast();
 
-        (address user,) = deriveRememberKey(mnemonic, 2); 
+        (address user, ) = deriveRememberKey(mnemonic, 2);
         console.log("Minting tokens with account", user);
         vm.startBroadcast(user);
 
@@ -101,6 +106,5 @@ contract DeployLocalScript is Script {
         console.log("Minted mock tokens for secondary account.");
 
         vm.stopBroadcast();
-
     }
 }
