@@ -38,11 +38,10 @@ contract Chainlink {
             ,
             /*uint80 roundId*/
             int256 answer,
-            uint256 startedAt,
+            uint256 startedAt, /*uint256 updatedAt*/
             ,
 
-        ) = /*uint256 updatedAt*/
-            /*uint80 answeredInRound*/
+        ) = /*uint80 answeredInRound*/
             sequencerUptimeFeed.latestRoundData();
 
         // Answer == 0: Sequencer is up
@@ -63,12 +62,11 @@ contract Chainlink {
         (
             ,
             /*uint80 roundID*/
-            int256 price,
+            int256 price, /*uint startedAt*/
             ,
             ,
 
-        ) = /*uint startedAt*/
-            /*uint timeStamp*/
+        ) = /*uint timeStamp*/
             /*uint80 answeredInRound*/
             priceFeed.latestRoundData();
 

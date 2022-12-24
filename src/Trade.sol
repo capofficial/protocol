@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.13;
 
-import "./Chainlink.sol";
-import "./Store.sol";
-import "./Pool.sol";
+import "./interfaces/IPool.sol";
+import "./interfaces/IStore.sol";
 import "./interfaces/ITrade.sol";
+import "./interfaces/IChainlink.sol";
 
 contract Trade is ITrade {
     uint256 public constant UNIT = 10**18;
@@ -12,9 +12,9 @@ contract Trade is ITrade {
 
     address public gov;
 
-    Chainlink public chainlink;
-    Pool public pool;
-    Store public store;
+    IChainlink public chainlink;
+    IPool public pool;
+    IStore public store;
 
     // Methods
 
@@ -27,9 +27,9 @@ contract Trade is ITrade {
         address _pool,
         address _store
     ) external onlyGov {
-        chainlink = Chainlink(_chainlink);
-        pool = Pool(_pool);
-        store = Store(_store);
+        chainlink = IChainlink(_chainlink);
+        pool = IPool(_pool);
+        store = IStore(_store);
     }
 
     function deposit(uint256 amount) external {
@@ -57,13 +57,13 @@ contract Trade is ITrade {
     }
 
     function submitOrder(
-        Store.Order memory params,
+        IStore.Order memory params,
         uint256 tpPrice,
         uint256 slPrice
     ) external {
         address user = msg.sender;
 
-        Store.Market memory market = store.getMarket(params.market);
+        IStore.Market memory market = store.getMarket(params.market);
         require(market.maxLeverage > 0, "!market");
         require(market.minSize <= params.size, "!min-size");
 
@@ -137,14 +137,14 @@ contract Trade is ITrade {
         );
 
         if (tpPrice > 0) {
-            Store.Order memory tpOrder = Store.Order({
+            IStore.Order memory tpOrder = IStore.Order({
                 orderId: 0,
                 user: user,
-                market: params.market,
-                price: tpPrice,
                 isLong: !params.isLong,
                 isReduceOnly: true,
                 orderType: 1,
+                market: params.market,
+                price: tpPrice,
                 margin: 0,
                 size: params.size,
                 fee: params.fee,
@@ -167,14 +167,14 @@ contract Trade is ITrade {
         }
 
         if (slPrice > 0) {
-            Store.Order memory slOrder = Store.Order({
+            IStore.Order memory slOrder = IStore.Order({
                 orderId: 0,
                 user: user,
-                market: params.market,
-                price: slPrice,
                 isLong: !params.isLong,
                 isReduceOnly: true,
                 orderType: 2,
+                market: params.market,
+                price: slPrice,
                 margin: 0,
                 size: params.size,
                 fee: params.fee,
@@ -198,11 +198,11 @@ contract Trade is ITrade {
     }
 
     function updateOrder(uint256 orderId, uint256 price) external {
-        Store.Order memory order = store.getOrder(orderId);
+        IStore.Order memory order = store.getOrder(orderId);
         require(order.user == msg.sender, "!user");
         require(order.size > 0, "!order");
         require(order.orderType != 0, "!market-order");
-        Store.Market memory market = store.getMarket(order.market);
+        IStore.Market memory market = store.getMarket(order.market);
         uint256 chainlinkPrice = chainlink.getPrice(market.feed);
         require(chainlinkPrice > 0, "!chainlink");
         if (
@@ -221,7 +221,7 @@ contract Trade is ITrade {
     }
 
     function cancelOrder(uint256 orderId) public {
-        Store.Order memory order = store.getOrder(orderId);
+        IStore.Order memory order = store.getOrder(orderId);
         require(order.user == msg.sender, "!user");
         require(order.size > 0, "!order");
         require(order.orderType != 0, "!market-order");
@@ -245,12 +245,12 @@ contract Trade is ITrade {
         view
         returns (uint256[] memory orderIdsToExecute)
     {
-        Store.Order[] memory orders = store.getOrders();
+        IStore.Order[] memory orders = store.getOrders();
         uint256[] memory _orderIds = new uint256[](orders.length);
         uint256 j;
         for (uint256 i = 0; i < orders.length; i++) {
-            Store.Order memory order = orders[i];
-            Store.Market memory market = store.getMarket(order.market);
+            IStore.Order memory order = orders[i];
+            IStore.Market memory market = store.getMarket(order.market);
 
             uint256 chainlinkPrice = chainlink.getPrice(market.feed);
             if (chainlinkPrice == 0) continue;
@@ -295,9 +295,9 @@ contract Trade is ITrade {
         uint256[] memory orderIds = getExecutableOrderIds();
         for (uint256 i = 0; i < orderIds.length; i++) {
             uint256 orderId = orderIds[i];
-            Store.Order memory order = store.getOrder(orderId);
+            IStore.Order memory order = store.getOrder(orderId);
             if (order.size == 0 || order.price == 0) continue;
-            Store.Market memory market = store.getMarket(order.market);
+            IStore.Market memory market = store.getMarket(order.market);
             uint256 chainlinkPrice = chainlink.getPrice(market.feed);
             if (chainlinkPrice == 0) continue;
             _executeOrder(order, chainlinkPrice, msg.sender);
@@ -305,12 +305,12 @@ contract Trade is ITrade {
     }
 
     function _executeOrder(
-        Store.Order memory order,
+        IStore.Order memory order,
         uint256 price,
         address keeper
     ) internal {
         // Check for existing position
-        Store.Position memory position = store.getPosition(
+        IStore.Position memory position = store.getPosition(
             order.user,
             order.market
         );
@@ -327,17 +327,17 @@ contract Trade is ITrade {
     }
 
     function _increasePosition(
-        Store.Order memory order,
+        IStore.Order memory order,
         uint256 price,
         address keeper
     ) internal {
-        Store.Position memory position = store.getPosition(
+        IStore.Position memory position = store.getPosition(
             order.user,
             order.market
         );
 
         uint256 fee = order.fee;
-        uint256 keeperFee = (fee * store.keeperFeeShare()) / BPS_DIVIDER;
+        uint256 keeperFee = (fee * store.getKeeperFeeShare()) / BPS_DIVIDER;
         fee -= keeperFee;
 
         pool.creditFee(order.user, order.market, fee, false);
@@ -389,11 +389,11 @@ contract Trade is ITrade {
     }
 
     function _decreasePosition(
-        Store.Order memory order,
+        IStore.Order memory order,
         uint256 price,
         address keeper
     ) internal {
-        Store.Position memory position = store.getPosition(
+        IStore.Position memory position = store.getPosition(
             order.user,
             order.market
         );
@@ -422,7 +422,7 @@ contract Trade is ITrade {
         }
 
         uint256 fee = order.fee;
-        uint256 keeperFee = (fee * store.keeperFeeShare()) / BPS_DIVIDER;
+        uint256 keeperFee = (fee * store.getKeeperFeeShare()) / BPS_DIVIDER;
         fee -= keeperFee;
 
         pool.creditFee(order.user, order.market, fee, false);
@@ -505,15 +505,15 @@ contract Trade is ITrade {
         // Open position in opposite direction if size remains
 
         if (!order.isReduceOnly && remainingOrderSize > 0) {
-            Store.Order memory nextOrder = Store.Order({
+            IStore.Order memory nextOrder = IStore.Order({
                 orderId: 0,
                 user: order.user,
+                isLong: order.isLong,
+                orderType: 0,
                 market: order.market,
                 margin: remainingOrderMargin,
                 size: remainingOrderSize,
                 price: 0,
-                isLong: order.isLong,
-                orderType: 0,
                 fee: (order.fee * remainingOrderSize) / order.size,
                 isReduceOnly: false,
                 timestamp: block.timestamp
@@ -526,10 +526,10 @@ contract Trade is ITrade {
     function closePositionWithoutProfit(string memory _market) external {
         address user = msg.sender;
 
-        Store.Position memory position = store.getPosition(user, _market);
+        IStore.Position memory position = store.getPosition(user, _market);
         require(position.size > 0, "!position");
 
-        Store.Market memory market = store.getMarket(_market);
+        IStore.Market memory market = store.getMarket(_market);
 
         uint256 fee = (position.size * market.fee) / BPS_DIVIDER;
 
@@ -596,7 +596,7 @@ contract Trade is ITrade {
             } else {
                 marginLevel = (BPS_DIVIDER * uint256(equity)) / lockedMargin;
             }
-            if (marginLevel < store.minimumMarginLevel()) {
+            if (marginLevel < store.getMinimumMarginLevel()) {
                 _users[j] = user;
                 j++;
             }
@@ -615,13 +615,13 @@ contract Trade is ITrade {
 
         for (uint256 i = 0; i < usersToLiquidate.length; i++) {
             address user = usersToLiquidate[i];
-            Store.Position[] memory positions = store.getUserPositions(user);
+            IStore.Position[] memory positions = store.getUserPositions(user);
             for (uint256 j = 0; j < positions.length; j++) {
-                Store.Position memory position = positions[j];
-                Store.Market memory market = store.getMarket(position.market);
+                IStore.Position memory position = positions[j];
+                IStore.Market memory market = store.getMarket(position.market);
 
                 uint256 fee = (position.size * market.fee) / BPS_DIVIDER;
-                uint256 liquidatorFee = (fee * store.keeperFeeShare()) /
+                uint256 liquidatorFee = (fee * store.getKeeperFeeShare()) /
                     BPS_DIVIDER;
                 fee -= liquidatorFee;
                 liquidatorFees += liquidatorFee;
@@ -664,15 +664,15 @@ contract Trade is ITrade {
     function getUserPositionsWithUpls(address user)
         external
         view
-        returns (Store.Position[] memory _positions, int256[] memory _upls)
+        returns (IStore.Position[] memory _positions, int256[] memory _upls)
     {
         _positions = store.getUserPositions(user);
         uint256 length = _positions.length;
         _upls = new int256[](length);
         for (uint256 i = 0; i < length; i++) {
-            Store.Position memory position = _positions[i];
+            IStore.Position memory position = _positions[i];
 
-            Store.Market memory market = store.getMarket(position.market);
+            IStore.Market memory market = store.getMarket(position.market);
 
             uint256 chainlinkPrice = chainlink.getPrice(market.feed);
             if (chainlinkPrice == 0) continue;
@@ -695,15 +695,15 @@ contract Trade is ITrade {
     function getMarketsWithPrices()
         external
         view
-        returns (Store.Market[] memory _markets, uint256[] memory _prices)
+        returns (IStore.Market[] memory _markets, uint256[] memory _prices)
     {
         string[] memory marketList = store.getMarketList();
         uint256 length = marketList.length;
-        _markets = new Store.Market[](length);
+        _markets = new IStore.Market[](length);
         _prices = new uint256[](length);
 
         for (uint256 i = 0; i < length; i++) {
-            Store.Market memory market = store.getMarket(marketList[i]);
+            IStore.Market memory market = store.getMarket(marketList[i]);
             uint256 chainlinkPrice = chainlink.getPrice(market.feed);
             _markets[i] = market;
             _prices[i] = chainlinkPrice;
@@ -747,10 +747,10 @@ contract Trade is ITrade {
     }
 
     function getUpl(address user) public view returns (int256 upl) {
-        Store.Position[] memory positions = store.getUserPositions(user);
+        IStore.Position[] memory positions = store.getUserPositions(user);
         for (uint256 j = 0; j < positions.length; j++) {
-            Store.Position memory position = positions[j];
-            Store.Market memory market = store.getMarket(position.market);
+            IStore.Position memory position = positions[j];
+            IStore.Market memory market = store.getMarket(position.market);
 
             uint256 chainlinkPrice = chainlink.getPrice(market.feed);
             if (chainlinkPrice == 0) continue;
@@ -779,7 +779,7 @@ contract Trade is ITrade {
             return;
         }
 
-        if (lastUpdated + store.fundingInterval() > _now) return;
+        if (lastUpdated + store.getFundingInterval() > _now) return;
 
         int256 fundingIncrement = getAccruedFunding(market, 0); // in UNIT * bps
 
@@ -803,7 +803,7 @@ contract Trade is ITrade {
         if (intervals == 0) {
             intervals =
                 (block.timestamp - store.getFundingLastUpdated(market)) /
-                store.fundingInterval();
+                store.getFundingInterval();
         }
 
         if (intervals == 0) return 0;

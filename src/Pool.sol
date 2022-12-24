@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.13;
 
-import "./Chainlink.sol";
-import "./Store.sol";
+import "./interfaces/IStore.sol";
 
 contract Pool {
     uint256 public constant UNIT = 10**18;
@@ -10,9 +9,7 @@ contract Pool {
 
     address public gov;
     address public trade;
-
-    Chainlink public chainlink;
-    Store public store;
+    IStore public store;
 
     // Events
 
@@ -64,12 +61,12 @@ contract Pool {
 
     function link(address _trade, address _store) external onlyGov {
         trade = _trade;
-        store = Store(_store);
+        store = IStore(_store);
     }
 
     function addLiquidity(uint256 amount) external {
         require(amount > 0, "!amount");
-        uint256 balance = store.poolBalance();
+        uint256 balance = store.getPoolBalance();
         address user = msg.sender;
         store.transferIn(user, amount);
 
@@ -82,21 +79,22 @@ contract Pool {
         store.mintCLP(user, clpAmount);
         store.incrementPoolBalance(amount);
 
-        emit AddLiquidity(user, amount, clpAmount, store.poolBalance());
+        emit AddLiquidity(user, amount, clpAmount, store.getPoolBalance());
     }
 
     function removeLiquidity(uint256 amount) external {
         require(amount > 0, "!amount");
 
         address user = msg.sender;
-        uint256 balance = store.poolBalance();
+        uint256 balance = store.getPoolBalance();
         uint256 clpSupply = store.getCLPSupply();
         require(balance > 0 && clpSupply > 0, "!empty");
 
         uint256 userBalance = store.getUserPoolBalance(user);
         if (amount > userBalance) amount = userBalance;
 
-        uint256 feeAmount = (amount * store.poolWithdrawalFee()) / BPS_DIVIDER;
+        uint256 feeAmount = (amount * store.getPoolWithdrawalFee()) /
+            BPS_DIVIDER;
         uint256 amountMinusFee = amount - feeAmount;
 
         // CLP amount
@@ -112,7 +110,7 @@ contract Pool {
             amount,
             feeAmount,
             clpAmount,
-            store.poolBalance()
+            store.getPoolBalance()
         );
     }
 
@@ -123,7 +121,7 @@ contract Pool {
     ) external onlyTrade {
         store.incrementBufferBalance(amount);
 
-        uint256 lastPaid = store.poolLastPaid();
+        uint256 lastPaid = store.getPoolLastPaid();
         uint256 _now = block.timestamp;
 
         if (lastPaid == 0) {
@@ -131,8 +129,8 @@ contract Pool {
             return;
         }
 
-        uint256 bufferBalance = store.bufferBalance();
-        uint256 bufferPayoutPeriod = store.bufferPayoutPeriod();
+        uint256 bufferBalance = store.getBufferBalance();
+        uint256 bufferPayoutPeriod = store.getBufferPayoutPeriod();
 
         uint256 amountToSendPool = (bufferBalance *
             (block.timestamp - lastPaid)) / bufferPayoutPeriod;
@@ -150,8 +148,8 @@ contract Pool {
             market,
             amount,
             amountToSendPool,
-            store.poolBalance(),
-            store.bufferBalance()
+            store.getPoolBalance(),
+            store.getBufferBalance()
         );
     }
 
@@ -162,13 +160,13 @@ contract Pool {
     ) external onlyTrade {
         if (amount == 0) return;
 
-        uint256 bufferBalance = store.bufferBalance();
+        uint256 bufferBalance = store.getBufferBalance();
 
         store.decrementBufferBalance(amount);
 
         if (amount > bufferBalance) {
             uint256 diffToPayFromPool = amount - bufferBalance;
-            uint256 poolBalance = store.poolBalance();
+            uint256 poolBalance = store.getPoolBalance();
             require(diffToPayFromPool < poolBalance, "!pool-balance");
             store.decrementPoolBalance(diffToPayFromPool);
         }
@@ -179,8 +177,8 @@ contract Pool {
             user,
             market,
             amount,
-            store.poolBalance(),
-            store.bufferBalance()
+            store.getPoolBalance(),
+            store.getBufferBalance()
         );
     }
 
@@ -192,11 +190,11 @@ contract Pool {
     ) external onlyTrade {
         if (fee == 0) return;
 
-        uint256 poolFee = (fee * store.poolFeeShare()) / BPS_DIVIDER;
+        uint256 poolFee = (fee * store.getPoolFeeShare()) / BPS_DIVIDER;
         uint256 treasuryFee = fee - poolFee;
 
         store.incrementPoolBalance(poolFee);
-        store.incrementTreasuryBalance(treasuryFee);
+        store.payTreasuryFee(treasuryFee);
 
         emit FeePaid(
             user,

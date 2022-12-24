@@ -4,7 +4,7 @@ pragma solidity ^0.8.13;
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
-import "./CLP.sol";
+import "./interfaces/ICLP.sol";
 
 contract Store {
     // TODO: send balance to treasury address
@@ -14,23 +14,35 @@ contract Store {
     using EnumerableSet for EnumerableSet.AddressSet;
     using SafeERC20 for IERC20;
 
-    uint256 public constant BPS_DIVIDER = 10000;
-
     address public gov;
     address public currency;
     address public clp;
+    address payable public treasuryAddress;
 
     // contracts
     address public trade;
     address public pool;
 
-    uint256 public poolFeeShare = 5000; // in bps
-    uint256 public keeperFeeShare = 1000; // in bps
-    uint256 public poolWithdrawalFee = 10; // in bps
-    uint256 public minimumMarginLevel = 2000; // 20% in bps, at which account is liquidated
+    uint256 public constant BPS_DIVIDER = 10000;
+    uint256 public constant MAX_FEE = 1000; // 10%
+
+    uint256 private poolFeeShare = 5000; // in bps
+    uint256 private keeperFeeShare = 1000; // in bps
+    uint256 private poolWithdrawalFee = 10; // in bps
+    uint256 private minimumMarginLevel = 2000; // 20% in bps, at which account is liquidated
+
+    // Variables
+    uint256 public orderId;
+
+    uint256 private bufferBalance;
+    uint256 private poolBalance;
+    uint256 private poolLastPaid;
+
+    uint256 private bufferPayoutPeriod = 7 days;
+
+    string[] public marketList; // "ETH-USD", "BTC-USD", etc
 
     // Structs
-
     struct Market {
         string symbol;
         address feed;
@@ -45,11 +57,11 @@ contract Store {
     struct Order {
         uint256 orderId;
         address user;
-        string market;
-        uint256 price;
         bool isLong;
         bool isReduceOnly;
         uint8 orderType; // 0 = market, 1 = limit, 2 = stop
+        string market;
+        uint256 price;
         uint256 margin;
         uint256 size;
         uint256 fee;
@@ -58,8 +70,8 @@ contract Store {
 
     struct Position {
         address user;
-        string market;
         bool isLong;
+        string market;
         uint256 size;
         uint256 margin;
         int256 fundingTracker;
@@ -67,24 +79,9 @@ contract Store {
         uint256 timestamp;
     }
 
-    // Variables
-
-    uint256 public orderId;
-
-    uint256 public bufferBalance;
-    uint256 public poolBalance;
-    uint256 public poolLastPaid;
-    uint256 public treasuryBalance;
-
-    uint256 public bufferPayoutPeriod = 7 days;
-
     mapping(uint256 => Order) private orders;
     mapping(address => EnumerableSet.UintSet) private userOrderIds; // user => [order ids..]
     EnumerableSet.UintSet private orderIds; // [order ids..]
-
-    uint256 public constant MAX_FEE = 1000; // 10%
-
-    string[] public marketList; // "ETH-USD", "BTC-USD", etc
     mapping(string => Market) private markets;
 
     mapping(bytes32 => Position) private positions; // key = user,market
@@ -98,16 +95,12 @@ contract Store {
     mapping(address => uint256) private lockedMargins; // user => amount
     EnumerableSet.AddressSet private usersWithLockedMargin; // [users...]
 
-    // Funding
-    uint256 public constant fundingInterval = 1 hours; // In seconds.
-
     mapping(string => int256) private fundingTrackers; // market => funding tracker (long) (short is opposite) // in UNIT * bps
     mapping(string => uint256) private fundingLastUpdated; // market => last time fundingTracker was updated. In seconds.
 
-    event FeeCollected(address indexed treasuryAddress, uint256 amount);
-
-    constructor() {
+    constructor(address payable _treasuryAddress) {
         gov = msg.sender;
+        setTreasuryAddress(_treasuryAddress);
     }
 
     function link(
@@ -124,17 +117,12 @@ contract Store {
 
     // Gov methods
 
-    function collectTreasuryFee(address payable treasuryAddress, uint256 amount)
-        external
+    function setTreasuryAddress(address payable _treasuryAddress)
+        public
         onlyGov
     {
-        uint256 bal = treasuryBalance;
-        require(bal >= amount, "NOTHING_AVAILABLE");
-        require(treasuryAddress != address(0), "INVALID_ADDRESS");
-        treasuryBalance -= amount;
-        (bool success, ) = treasuryAddress.call{value: amount}("");
-        require(success, "TRANSFER_ERROR");
-        emit FeeCollected(treasuryAddress, amount);
+        require(treasuryAddress != address(0), "!address");
+        treasuryAddress = _treasuryAddress;
     }
 
     function setPoolFeeShare(uint256 amount) external onlyGov {
@@ -187,11 +175,16 @@ contract Store {
     }
 
     function mintCLP(address user, uint256 amount) external onlyContract {
-        CLP(clp).mint(user, amount);
+        ICLP(clp).mint(user, amount);
     }
 
     function burnCLP(address user, uint256 amount) external onlyContract {
-        CLP(clp).mint(user, amount);
+        ICLP(clp).mint(user, amount);
+    }
+
+    function payTreasuryFee(uint256 amount) external onlyContract {
+        (bool success, ) = treasuryAddress.call{value: amount}("");
+        require(success, "!transferred");
     }
 
     function incrementBalance(address user, uint256 amount)
@@ -227,6 +220,10 @@ contract Store {
         return (IERC20(clp).balanceOf(user) * poolBalance) / clpSupply;
     }
 
+    function getPoolBalance() external view returns (uint256) {
+        return poolBalance;
+    }
+
     function incrementBufferBalance(uint256 amount) external onlyContract {
         bufferBalance += amount;
     }
@@ -237,14 +234,6 @@ contract Store {
 
     function setPoolLastPaid(uint256 timestamp) external onlyContract {
         poolLastPaid = timestamp;
-    }
-
-    function incrementTreasuryBalance(uint256 amount) external onlyContract {
-        treasuryBalance += amount;
-    }
-
-    function decrementTreasuryBalance(uint256 amount) external onlyContract {
-        treasuryBalance -= amount;
     }
 
     function lockMargin(address user, uint256 amount) external onlyContract {
@@ -323,6 +312,10 @@ contract Store {
 
     function getOrder(uint256 id) external view returns (Order memory _order) {
         return orders[id];
+    }
+
+    function getPoolLastPaid() external view returns (uint256) {
+        return poolLastPaid;
     }
 
     function addOrder(Order memory order)
@@ -456,6 +449,34 @@ contract Store {
         returns (int256)
     {
         return fundingTrackers[market];
+    }
+
+    function getPoolWithdrawalFee() external view returns (uint256) {
+        return poolWithdrawalFee;
+    }
+
+    function getBufferBalance() external view returns (uint256) {
+        return bufferBalance;
+    }
+
+    function getBufferPayoutPeriod() external view returns (uint256) {
+        return bufferPayoutPeriod;
+    }
+
+    function getPoolFeeShare() external view returns (uint256) {
+        return poolFeeShare;
+    }
+
+    function getKeeperFeeShare() external view returns (uint256) {
+        return keeperFeeShare;
+    }
+
+    function getMinimumMarginLevel() external view returns (uint256) {
+        return minimumMarginLevel;
+    }
+
+    function getFundingInterval() external pure returns (uint256) {
+        return 1 hours;
     }
 
     function setFundingLastUpdated(string memory market, uint256 timestamp)

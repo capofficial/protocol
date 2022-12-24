@@ -38,7 +38,7 @@ contract DeployLocalScript is Script {
         chainlink = new MockChainlink();
         console.log("Chainlink deployed to", address(chainlink));
 
-        store = new Store();
+        store = new Store(payable(deployer));
         console.log("Store deployed to", address(store));
 
         trade = new Trade();
