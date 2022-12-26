@@ -13,9 +13,8 @@ import "../src/mocks/MockToken.sol";
 contract SetupTest is Test {
     uint256 public constant CURRENCY_UNIT = 10 ** 6;
 
-    address public deployer;
-    address public user;
-    address public user2;
+    address public user = address(0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC);
+    address public user2 = address(0x90F79bf6EB2c4f870365E785982E1f101E93b906);
 
     Trade public trade;
     Pool public pool;
@@ -26,13 +25,6 @@ contract SetupTest is Test {
     MockChainlink public chainlink;
 
     function setUp() public virtual {
-        // this is the default mnemonic anvil uses
-        string memory mnemonic = "test test test test test test test test test test test junk";
-        (deployer,) = deriveRememberKey(mnemonic, 0);
-
-        //console.log("Deploying contracts with address", deployer);
-        vm.startPrank(deployer);
-
         usdc = new MockToken("USDC", "USDC", 6);
         //console.log("USDC token deployed to", address(usdc));
 
@@ -94,11 +86,8 @@ contract SetupTest is Test {
 
         //console.log("Minted mock tokens for deployer account.");
 
-        vm.stopPrank();
-
-        (user,) = deriveRememberKey(mnemonic, 2);
-        //console.log("Minting tokens with account", user);
         vm.startPrank(user);
+        //console.log("Minting tokens with account", user);
 
         // To user
         usdc.mint(1000000 * CURRENCY_UNIT);
@@ -108,9 +97,8 @@ contract SetupTest is Test {
 
         vm.stopPrank();
 
-        (user2,) = deriveRememberKey(mnemonic, 1);
-        //console.log("Minting tokens with account", user2);
         vm.startPrank(user2);
+        //console.log("Minting tokens with account", user2);
 
         // To user2
         usdc.mint(1000000 * CURRENCY_UNIT);
