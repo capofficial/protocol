@@ -39,16 +39,19 @@ contract Trade is ITrade {
         emit Deposit(msg.sender, amount);
     }
 
-    function depositThroughUniswap(address inToken, uint256 amountIn, uint24 poolFee) external payable {
+    function depositThroughUniswap(address tokenIn, uint256 amountIn, uint256 amountOutMin, uint24 poolFee)
+        external
+        payable
+    {
         if (msg.value == 0) {
             require(amountIn > 0, "!amount");
-            require(inToken != address(0), "!address");
+            require(tokenIn != address(0), "!address");
         }
 
         address user = msg.sender;
 
         // executes swap, tokens will be deposited in the store contract
-        uint256 amountOut = store.swapExactInputSingle{value: msg.value}(user, amountIn, inToken, poolFee);
+        uint256 amountOut = store.swapExactInputSingle{value: msg.value}(user, amountIn, amountOutMin, tokenIn, poolFee);
 
         store.incrementBalance(msg.sender, amountOut);
 

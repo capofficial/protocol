@@ -4,7 +4,6 @@ pragma solidity ^0.8.13;
 import "./Store.sol";
 
 contract Pool {
-    uint256 public constant UNIT = 10 ** 18;
     uint256 public constant BPS_DIVIDER = 10000;
 
     address public gov;
@@ -49,28 +48,6 @@ contract Pool {
         treasury = _treasury;
     }
 
-    function addLiquidityThroughUniswap(address inToken, uint256 amountIn, uint24 poolFee) external payable {
-        if (msg.value == 0) {
-            require(amountIn > 0, "!amount");
-            require(inToken != address(0), "!address");
-        }
-
-        address user = msg.sender;
-
-        // executes swap, tokens will be deposited to store contract
-        uint256 amountOut = store.swapExactInputSingle{value: msg.value}(user, amountIn, inToken, poolFee);
-
-        // add store supported liquidity
-        uint256 balance = store.poolBalance();
-        uint256 clpSupply = store.getCLPSupply();
-        uint256 clpAmount = balance == 0 || clpSupply == 0 ? amountOut : amountOut * clpSupply / balance;
-
-        store.mintCLP(user, clpAmount);
-        store.incrementPoolBalance(amountOut);
-
-        emit AddLiquidity(user, amountOut, clpAmount, store.poolBalance());
-    }
-
     function addLiquidity(uint256 amount) external {
         require(amount > 0, "!amount");
         uint256 balance = store.poolBalance();
@@ -85,6 +62,31 @@ contract Pool {
         store.incrementPoolBalance(amount);
 
         emit AddLiquidity(user, amount, clpAmount, store.poolBalance());
+    }
+
+    function addLiquidityThroughUniswap(address tokenIn, uint256 amountIn, uint256 amountOutMin, uint24 poolFee)
+        external
+        payable
+    {
+        if (msg.value == 0) {
+            require(amountIn > 0, "!amount");
+            require(tokenIn != address(0), "!address");
+        }
+
+        address user = msg.sender;
+
+        // executes swap, tokens will be deposited to store contract
+        uint256 amountOut = store.swapExactInputSingle{value: msg.value}(user, amountIn, amountOutMin, tokenIn, poolFee);
+
+        // add store supported liquidity
+        uint256 balance = store.poolBalance();
+        uint256 clpSupply = store.getCLPSupply();
+        uint256 clpAmount = balance == 0 || clpSupply == 0 ? amountOut : amountOut * clpSupply / balance;
+
+        store.mintCLP(user, clpAmount);
+        store.incrementPoolBalance(amountOut);
+
+        emit AddLiquidity(user, amountOut, clpAmount, store.poolBalance());
     }
 
     function removeLiquidity(uint256 amount) external {

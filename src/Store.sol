@@ -183,10 +183,10 @@ contract Store {
     }
 
     function burnCLP(address user, uint256 amount) external onlyContract {
-        CLP(clp).mint(user, amount);
+        CLP(clp).burn(user, amount);
     }
 
-    function swapExactInputSingle(address user, uint256 amountIn, address inToken, uint24 poolFee)
+    function swapExactInputSingle(address user, uint256 amountIn, uint256 amountOutMin, address tokenIn, uint24 poolFee)
         external
         payable
         onlyContract
@@ -196,22 +196,22 @@ contract Store {
 
         if (msg.value != 0) {
             // there are no direct ETH pairs in Uniswapv3, so router converts ETH to WETH before swap
-            inToken = weth;
+            tokenIn = weth;
             amountIn = msg.value;
         } else {
             // transfer token to be swapped
-            IERC20(inToken).safeTransferFrom(user, address(this), amountIn);
-            IERC20(inToken).safeApprove(address(swapRouter), amountIn);
+            IERC20(tokenIn).safeTransferFrom(user, address(this), amountIn);
+            IERC20(tokenIn).safeApprove(address(swapRouter), amountIn);
         }
 
         ISwapRouter.ExactInputSingleParams memory params = ISwapRouter.ExactInputSingleParams({
-            tokenIn: inToken,
+            tokenIn: tokenIn,
             tokenOut: currency, // store supported currency
             fee: poolFee,
             recipient: address(this),
             deadline: block.timestamp + 15,
             amountIn: amountIn,
-            amountOutMinimum: 0,
+            amountOutMinimum: amountOutMin, // swap reverts if amountOut < amountOutMin
             sqrtPriceLimitX96: 0
         });
 
@@ -221,11 +221,11 @@ contract Store {
 
     // Function is not marked as view because it relies on calling non-view functions
     // Not gas efficient so shouldnt be called on-chain
-    function getEstimatedOutputTokens(uint256 amountIn, address inToken, uint24 poolFee)
+    function getEstimatedOutputTokens(uint256 amountIn, address tokenIn, uint24 poolFee)
         external
         returns (uint256 amountOut)
     {
-        return IQuoter(quoter).quoteExactInputSingle(inToken, currency, poolFee, amountIn, 0);
+        return IQuoter(quoter).quoteExactInputSingle(tokenIn, currency, poolFee, amountIn, 0);
     }
 
     function incrementBalance(address user, uint256 amount) external onlyContract {
