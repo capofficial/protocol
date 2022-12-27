@@ -245,7 +245,6 @@ contract UniswapTest is SetupTest {
         uint256 amountOutMin = amountOutWETH * 99 / 100;
 
         // deposit with ETH
-        // we use a poolFee of 100 for very stable pairs and 500 for stable pairs
         trade.depositThroughUniswap{value: 1 ether}(address(0), 0, amountOutMin, poolFee);
 
         // native token on Polygon is MATIC

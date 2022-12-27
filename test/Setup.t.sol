@@ -16,6 +16,9 @@ contract SetupTest is Test {
     address public user = address(0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC);
     address public user2 = address(0x90F79bf6EB2c4f870365E785982E1f101E93b906);
 
+    address public ethFeed = makeAddr("ETH-USD");
+    address public btcFeed = makeAddr("BTC-USD");
+
     Trade public trade;
     Pool public pool;
     Store public store;
@@ -23,6 +26,35 @@ contract SetupTest is Test {
 
     MockToken public usdc;
     MockChainlink public chainlink;
+
+    // Test Orders
+    Store.Order ethLong = Store.Order({
+        orderId: 0,
+        user: address(0),
+        market: "ETH-USD",
+        price: 0, // price doesnt matter, since ordertype = market
+        isLong: true,
+        isReduceOnly: false,
+        orderType: 0, // 0 = market, 1 = limit, 2 = stop
+        margin: 2500 * CURRENCY_UNIT,
+        size: 10000 * CURRENCY_UNIT, // leverage => 5x
+        fee: 0,
+        timestamp: 0
+    });
+
+    Store.Order btcLong = Store.Order({
+        orderId: 0,
+        user: address(0),
+        market: "BTC-USD",
+        price: 0, // price doesnt matter, since ordertype = market
+        isLong: true,
+        isReduceOnly: false,
+        orderType: 0, // 0 = market, 1 = limit, 2 = stop
+        margin: 2500 * CURRENCY_UNIT,
+        size: 10000 * CURRENCY_UNIT, // leverage => 5x
+        fee: 0,
+        timestamp: 0
+    });
 
     function setUp() public virtual {
         usdc = new MockToken("USDC", "USDC", 6);
@@ -46,7 +78,7 @@ contract SetupTest is Test {
         // Link
         store.link(address(trade), address(pool), address(usdc), address(clp));
         trade.link(address(chainlink), address(pool), address(store));
-        pool.link(address(trade), address(store), address(this)); // assuming treasury = address(this)
+        pool.link(address(trade), address(store), address(1)); // assuming treasury = address(1)
         //console.log("Contracts linked");
 
         // Setup markets
@@ -54,7 +86,7 @@ contract SetupTest is Test {
             "ETH-USD",
             Store.Market({
                 symbol: "ETH-USD",
-                feed: address(0),
+                feed: ethFeed,
                 maxLeverage: 50,
                 maxOI: 5000000 * CURRENCY_UNIT,
                 fee: 100,
@@ -67,7 +99,7 @@ contract SetupTest is Test {
             "BTC-USD",
             Store.Market({
                 symbol: "BTC-USD",
-                feed: address(0),
+                feed: btcFeed,
                 maxLeverage: 50,
                 maxOI: 5000000 * CURRENCY_UNIT,
                 fee: 100,
@@ -79,33 +111,24 @@ contract SetupTest is Test {
 
         //console.log("Markets set up.");
 
-        // Mint and approve some mock USDC
+        // Setup prices
+        chainlink.setPrice(ethFeed, 5000); // 1 ETH = 5000 USD
+        chainlink.setPrice(btcFeed, 100_000); // 1 BTC = 100k USD
 
+        // Mint and approve some mock USDC
         usdc.mint(1000000 * CURRENCY_UNIT);
         usdc.approve(address(store), 10 ** 9 * CURRENCY_UNIT);
-
-        //console.log("Minted mock tokens for deployer account.");
-
-        vm.startPrank(user);
-        //console.log("Minting tokens with account", user);
 
         // To user
+        vm.startPrank(user);
         usdc.mint(1000000 * CURRENCY_UNIT);
         usdc.approve(address(store), 10 ** 9 * CURRENCY_UNIT);
-
-        //console.log("Minted mock tokens for user account.");
-
         vm.stopPrank();
 
-        vm.startPrank(user2);
-        //console.log("Minting tokens with account", user2);
-
         // To user2
+        vm.startPrank(user2);
         usdc.mint(1000000 * CURRENCY_UNIT);
         usdc.approve(address(store), 10 ** 9 * CURRENCY_UNIT);
-
-        //console.log("Minted mock tokens for second user account.");
-
         vm.stopPrank();
     }
 }
