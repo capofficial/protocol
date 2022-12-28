@@ -16,7 +16,50 @@ contract PoolTest is SetupTest {
 
     function setUp() public virtual override {
         super.setUp();
+
         vm.startPrank(user);
+
+        trade.deposit(10000 * CURRENCY_UNIT);
+
+        // submit two test orders with stop loss 10% below current price
+        trade.submitOrder(ethLong, 0, 4500);
+        trade.submitOrder(btcLong, 0, 90000);
+
+        // minSettlementTime is 1 minutes -> fast forward 2 minutes
+        skip(2 minutes);
+        trade.executeOrders();
+
+        vm.stopPrank();
+    }
+
+    function testCreditTraderLoss() public {
+        // set ETH price to stop loss price, stop loss order should execute
+        chainlink.setPrice(ethFeed, 4500);
+        trade.executeOrders();
+
+        // ETH went down 10%, position size was 10k, so user lost 1k
+        // poolLastPaid = 0, so full amount should be used to increment Buffer balance
+        assertEq(store.bufferBalance(), 1000 * CURRENCY_UNIT, "bufferBalance != 1000 USDC");
+
+        // fast forward one day
+        skip(1 days);
+
+        // set BTC price to stop loss price, stop loss order should execute
+        chainlink.setPrice(btcFeed, 90000);
+        trade.executeOrders();
+
+        // BTC went down 10%, position size was 10k, so user lost 1k -> bufferBalance = 2k USDC
+        // we fast forwarded one day, so amountToSendPool = 2k USDC * 1/7 = 285.71
+
+        // buffer balance should be reduced
+        assertApproxEqRel(
+            store.bufferBalance(),
+            (2000 - 285) * CURRENCY_UNIT,
+            0.01 * 1e18,
+            "bufferBalance != 2000 USDC - amountToSendPool"
+        );
+        // pool balance should be amountToSendPool + fees
+        assertGt(store.poolBalance(), 285 * CURRENCY_UNIT, "!(poolBalance > amountToSendPool)");
     }
 
     /// @param amount amount of liquidity to add and remove (Fuzzer)
@@ -30,7 +73,7 @@ contract PoolTest is SetupTest {
         pool.addLiquidity(amount);
 
         // pool balance should be equal to amount
-        assertEq(store.poolBalance(), amount);
+        assertEq(store.poolBalance(), amount, "poolBalance != amount");
 
         // CLP should be burned
         vm.expectEmit(true, true, true, true);
@@ -47,6 +90,6 @@ contract PoolTest is SetupTest {
         pool.removeLiquidity(amount);
 
         // fee should remain in the pool
-        assertEq(store.poolBalance(), feeAmount);
+        assertEq(store.poolBalance(), feeAmount, "poolBalance != feeAmount");
     }
 }

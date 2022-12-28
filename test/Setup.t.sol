@@ -131,4 +131,45 @@ contract SetupTest is Test {
         usdc.approve(address(store), 10 ** 9 * CURRENCY_UNIT);
         vm.stopPrank();
     }
+
+    function _printOrders() internal view returns (uint256) {
+        Store.Order[] memory _orders = store.getOrders();
+
+        for (uint256 i = 0; i < _orders.length; i++) {
+            console.log("/* ========== ORDER ========== */");
+            console.log("Order ID:", _orders[i].orderId);
+            console.log("User:", _orders[i].user);
+            console.log("Market:", _orders[i].market);
+            console.log("Price:", _orders[i].price);
+            console.log("isLong:", _orders[i].isLong);
+            console.log("isReduceOnly:", _orders[i].isReduceOnly);
+            console.log("orderType:", _orders[i].orderType);
+            console.log("margin:", _orders[i].margin);
+            console.log("size:", _orders[i].size);
+            console.log("fee:", _orders[i].fee);
+            console.log("timestamp:", _orders[i].timestamp);
+            console.log();
+        }
+
+        return _orders.length;
+    }
+
+    function _printUserPositions(address _user) internal returns (uint256) {
+        Store.Position[] memory _positions = store.getUserPositions(_user);
+
+        for (uint256 i = 0; i < _positions.length; i++) {
+            console.log("/* ========== POSITION ========== */");
+            console.log("User:", _positions[i].user);
+            console.log("Market:", _positions[i].market);
+            console.log("Price:", _positions[i].price);
+            console.log("isLong:", _positions[i].isLong);
+            console.log("margin:", _positions[i].margin);
+            console.log("size:", _positions[i].size);
+            emit log_named_int("fundingTracker", _positions[i].fundingTracker);
+            console.log("timestamp:", _positions[i].timestamp);
+            console.log();
+        }
+
+        return _positions.length;
+    }
 }

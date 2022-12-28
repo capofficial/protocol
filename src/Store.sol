@@ -350,7 +350,7 @@ contract Store {
         Order memory order = orders[_orderId];
         if (order.size == 0) return;
         userOrderIds[order.user].remove(_orderId);
-        orderIds.remove(orderId);
+        orderIds.remove(_orderId);
         delete orders[_orderId];
     }
 
