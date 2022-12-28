@@ -21,9 +21,9 @@ contract PoolTest is SetupTest {
 
         trade.deposit(10000 * CURRENCY_UNIT);
 
-        // submit two test orders with stop loss 10% below current price
-        trade.submitOrder(ethLong, 0, 4500);
-        trade.submitOrder(btcLong, 0, 90000);
+        // submit two test orders with stop loss 10% below current price and TP 20% above current price
+        trade.submitOrder(ethLong, 6000, 4500);
+        trade.submitOrder(btcLong, 120_000, 90000);
 
         // minSettlementTime is 1 minutes -> fast forward 2 minutes
         skip(2 minutes);
@@ -60,6 +60,50 @@ contract PoolTest is SetupTest {
         );
         // pool balance should be amountToSendPool + fees
         assertGt(store.poolBalance(), 285 * CURRENCY_UNIT, "!(poolBalance > amountToSendPool)");
+    }
+
+    function testDebitTraderProfit() public {
+        // set msg.sender = trade contract to set buffer and pool balance
+        vm.startPrank(address(trade));
+        store.incrementBufferBalance(2000 * CURRENCY_UNIT);
+        store.incrementPoolBalance(5000 * CURRENCY_UNIT);
+        vm.stopPrank();
+
+        assertEq(store.bufferBalance(), 2000 * CURRENCY_UNIT, "!bufferBalance");
+        assertGt(store.poolBalance(), 5000 * CURRENCY_UNIT, "!poolBalance");
+
+        // set ETH price to 6000 USDC, TP order should execute -> user made 2k profit
+        chainlink.setPrice(ethFeed, 6000);
+        trade.executeOrders();
+
+        assertEq(store.bufferBalance(), 0, "bufferBalance != 0");
+
+        // set BTC price to 120k, TP order should execute -> user made 2k profit
+        chainlink.setPrice(btcFeed, 120_000);
+        trade.executeOrders();
+
+        // buffer is already empty so profits are taken from the pool
+        assertGt(store.poolBalance(), 3000 * CURRENCY_UNIT, "!poolBalance");
+
+        // user balance should be initital deposit + profit - orderFees => 10k + 4k - 600 = 18400
+        assertEq(store.getBalance(user), 13400 * CURRENCY_UNIT, "!userBalance");
+    }
+
+    function testCreditFee() public {
+        uint256 oldPoolBalance = store.poolBalance();
+        uint256 oldTreasuryBalance = IERC20(usdc).balanceOf(treasury);
+        uint256 oldKeeperBalance = IERC20(usdc).balanceOf(address(this));
+
+        // submit order with size of 10k USDC => fee = 100 USDC (45 Pool, 45 Treasury, 10 Keeper)
+        vm.prank(user);
+        trade.submitOrder(btcLong, 0, 0);
+        // minSettlementTime is 1 minutes -> fast forward 2 minutes
+        skip(2 minutes);
+        trade.executeOrders();
+
+        assertEq(store.poolBalance(), oldPoolBalance + 45 * CURRENCY_UNIT, "!poolFee");
+        assertEq(IERC20(usdc).balanceOf(treasury), oldTreasuryBalance + 45 * CURRENCY_UNIT, "!treasuryFee");
+        assertEq(IERC20(usdc).balanceOf(address(this)), oldKeeperBalance + 10 * CURRENCY_UNIT, "!keeperFee");
     }
 
     /// @param amount amount of liquidity to add and remove (Fuzzer)

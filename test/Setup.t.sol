@@ -13,6 +13,8 @@ import "../src/mocks/MockToken.sol";
 contract SetupTest is Test {
     uint256 public constant CURRENCY_UNIT = 10 ** 6;
 
+    address public treasury = makeAddr("Treausury");
+
     address public user = address(0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC);
     address public user2 = address(0x90F79bf6EB2c4f870365E785982E1f101E93b906);
 
@@ -78,7 +80,7 @@ contract SetupTest is Test {
         // Link
         store.link(address(trade), address(pool), address(usdc), address(clp));
         trade.link(address(chainlink), address(pool), address(store));
-        pool.link(address(trade), address(store), address(1)); // assuming treasury = address(1)
+        pool.link(address(trade), address(store), treasury);
         //console.log("Contracts linked");
 
         // Setup markets

@@ -146,13 +146,13 @@ contract Pool {
 
         uint256 bufferBalance = store.bufferBalance();
 
-        store.decrementBufferBalance(amount);
-
         if (amount > bufferBalance) {
             uint256 diffToPayFromPool = amount - bufferBalance;
             uint256 poolBalance = store.poolBalance();
             require(diffToPayFromPool < poolBalance, "!pool-balance");
             store.decrementPoolBalance(diffToPayFromPool);
+        } else {
+            store.decrementBufferBalance(amount);
         }
 
         store.incrementBalance(user, amount);
