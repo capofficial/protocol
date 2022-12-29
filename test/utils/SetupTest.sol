@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 
 import "./Constants.sol";
 
+import "../../src/interfaces/IStore.sol";
 import "../../src/Trade.sol";
 import "../../src/Pool.sol";
 import "../../src/Store.sol";
@@ -47,7 +48,7 @@ contract SetupTest is Constants {
         // Setup markets
         store.setMarket(
             "ETH-USD",
-            Store.Market({
+            IStore.Market({
                 symbol: "ETH-USD",
                 feed: ethFeed,
                 maxLeverage: 50,
@@ -60,7 +61,7 @@ contract SetupTest is Constants {
         );
         store.setMarket(
             "BTC-USD",
-            Store.Market({
+            IStore.Market({
                 symbol: "BTC-USD",
                 feed: btcFeed,
                 maxLeverage: 50,

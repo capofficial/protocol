@@ -5,7 +5,7 @@ import "./SetupTest.sol";
 
 contract TestUtils is SetupTest {
     // Test Orders
-    Store.Order ethLong = Store.Order({
+    IStore.Order ethLong = IStore.Order({
         orderId: 0,
         user: address(0),
         market: "ETH-USD",
@@ -19,7 +19,7 @@ contract TestUtils is SetupTest {
         timestamp: 0
     });
 
-    Store.Order btcLong = Store.Order({
+    IStore.Order btcLong = IStore.Order({
         orderId: 0,
         user: address(0),
         market: "BTC-USD",
@@ -48,7 +48,7 @@ contract TestUtils is SetupTest {
     }
 
     function _printOrders() internal view returns (uint256) {
-        Store.Order[] memory _orders = store.getOrders();
+        IStore.Order[] memory _orders = store.getOrders();
 
         for (uint256 i = 0; i < _orders.length; i++) {
             console.log("/* ========== ORDER ========== */");
@@ -70,7 +70,7 @@ contract TestUtils is SetupTest {
     }
 
     function _printUserPositions(address _user) internal returns (uint256) {
-        Store.Position[] memory _positions = store.getUserPositions(_user);
+        IStore.Position[] memory _positions = store.getUserPositions(_user);
 
         for (uint256 i = 0; i < _positions.length; i++) {
             console.log("/* ========== POSITION ========== */");

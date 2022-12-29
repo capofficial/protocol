@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 
 import "forge-std/Script.sol";
 
+import "../src/interfaces/IStore.sol";
 import "../src/Trade.sol";
 import "../src/Pool.sol";
 import "../src/Store.sol";
@@ -123,7 +124,7 @@ contract DeployProd is Script {
         // Setup markets
         store.setMarket(
             "ETH-USD",
-            Store.Market({
+            IStore.Market({
                 symbol: "ETH-USD",
                 feed: ethFeed,
                 maxLeverage: 50,
@@ -136,7 +137,7 @@ contract DeployProd is Script {
         );
         store.setMarket(
             "BTC-USD",
-            Store.Market({
+            IStore.Market({
                 symbol: "BTC-USD",
                 feed: btcFeed,
                 maxLeverage: 50,

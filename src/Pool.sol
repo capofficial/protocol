@@ -1,50 +1,42 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.13;
 
-import "./Store.sol";
+import "./interfaces/IPool.sol";
+import "./interfaces/IStore.sol";
 
-contract Pool {
+contract Pool is IPool {
     uint256 public constant BPS_DIVIDER = 10000;
 
     address public gov;
     address public trade;
     address public treasury;
 
-    Store public store;
-
-    // Events
-
-    event AddLiquidity(address indexed user, uint256 amount, uint256 clpAmount, uint256 poolBalance);
-
-    event RemoveLiquidity(
-        address indexed user, uint256 amount, uint256 feeAmount, uint256 clpAmount, uint256 poolBalance
-    );
-
-    event PoolPayIn(
-        address indexed user,
-        string market,
-        uint256 amount,
-        uint256 bufferToPoolAmount,
-        uint256 poolBalance,
-        uint256 bufferBalance
-    );
-
-    event PoolPayOut(address indexed user, string market, uint256 amount, uint256 poolBalance, uint256 bufferBalance);
-
-    event FeePaid(address indexed user, string market, uint256 fee, uint256 poolFee, bool isLiquidation);
+    IStore public store;
 
     // Methods
+
+    modifier onlyTrade() {
+        require(msg.sender == trade, "!trade");
+        _;
+    }
+
+    modifier onlyGov() {
+        require(msg.sender == gov, "!gov");
+        _;
+    }
+
     constructor() {
         gov = msg.sender;
     }
 
     function updateGov(address _gov) external onlyGov {
+        require(_gov != address(0), "!address");
         gov = _gov;
     }
 
     function link(address _trade, address _store, address _treasury) external onlyGov {
         trade = _trade;
-        store = Store(_store);
+        store = IStore(_store);
         treasury = _treasury;
     }
 
@@ -58,8 +50,8 @@ contract Pool {
 
         uint256 clpAmount = balance == 0 || clpSupply == 0 ? amount : amount * clpSupply / balance;
 
-        store.mintCLP(user, clpAmount);
         store.incrementPoolBalance(amount);
+        store.mintCLP(user, clpAmount);
 
         emit AddLiquidity(user, amount, clpAmount, store.poolBalance());
     }
@@ -83,8 +75,8 @@ contract Pool {
         uint256 clpSupply = store.getCLPSupply();
         uint256 clpAmount = balance == 0 || clpSupply == 0 ? amountOut : amountOut * clpSupply / balance;
 
-        store.mintCLP(user, clpAmount);
         store.incrementPoolBalance(amountOut);
+        store.mintCLP(user, clpAmount);
 
         emit AddLiquidity(user, amountOut, clpAmount, store.poolBalance());
     }
@@ -106,8 +98,8 @@ contract Pool {
         // CLP amount
         uint256 clpAmount = amountMinusFee * clpSupply / balance;
 
-        store.burnCLP(user, clpAmount);
         store.decrementPoolBalance(amountMinusFee);
+        store.burnCLP(user, clpAmount);
 
         store.transferOut(user, amountMinusFee);
 
@@ -177,15 +169,5 @@ contract Pool {
             poolFee,
             isLiquidation
             );
-    }
-
-    modifier onlyTrade() {
-        require(msg.sender == trade, "!trade");
-        _;
-    }
-
-    modifier onlyGov() {
-        require(msg.sender == gov, "!gov");
-        _;
     }
 }

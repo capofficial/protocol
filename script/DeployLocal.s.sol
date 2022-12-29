@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 
 import "forge-std/Script.sol";
 
+import "../src/interfaces/IStore.sol";
 import "../src/Trade.sol";
 import "../src/Pool.sol";
 import "../src/Store.sol";
@@ -24,10 +25,10 @@ contract DeployLocalScript is Script {
     function setUp() public {}
 
     function run() public {
-
+        
         // this is the default mnemonic anvil uses
-        string memory mnemonic = "test test test test test test test test test test test junk";   
-        (address deployer,) = deriveRememberKey(mnemonic, 0); 
+        string memory mnemonic = "test test test test test test test test test test test junk";
+        (address deployer,) = deriveRememberKey(mnemonic, 0);
 
         console.log("Deploying contracts with address", deployer);
         vm.startBroadcast(deployer);
@@ -59,7 +60,7 @@ contract DeployLocalScript is Script {
         // Setup markets
         store.setMarket(
             "ETH-USD",
-            Store.Market({
+            IStore.Market({
                 symbol: "ETH-USD",
                 feed: address(0),
                 maxLeverage: 50,
@@ -72,7 +73,7 @@ contract DeployLocalScript is Script {
         );
         store.setMarket(
             "BTC-USD",
-            Store.Market({
+            IStore.Market({
                 symbol: "BTC-USD",
                 feed: address(0),
                 maxLeverage: 50,

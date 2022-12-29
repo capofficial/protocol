@@ -6,9 +6,10 @@ import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
 import "@uniswap/v3-periphery/contracts/interfaces/IQuoter.sol";
 
-import "./CLP.sol";
+import "./interfaces/IStore.sol";
+import "./interfaces/ICLP.sol";
 
-contract Store {
+contract Store is IStore {
     using EnumerableSet for EnumerableSet.UintSet;
     using EnumerableSet for EnumerableSet.Bytes32Set;
     using EnumerableSet for EnumerableSet.AddressSet;
@@ -20,6 +21,7 @@ contract Store {
     uint256 public constant MAX_KEEPER_FEE_SHARE = 2000; // in bps = 20%
     uint256 public constant MAX_POOL_WITHDRAWAL_FEE = 500; // in bps = 5%
 
+    // contracts
     address public gov;
     address public currency;
     address public clp;
@@ -28,62 +30,22 @@ contract Store {
     address public quoter;
     address public weth;
 
-    // contracts
     address public trade;
     address public pool;
 
+    // Variables
     uint256 public poolFeeShare = 5000; // in bps
     uint256 public keeperFeeShare = 1000; // in bps
     uint256 public poolWithdrawalFee = 10; // in bps
     uint256 public minimumMarginLevel = 2000; // 20% in bps, at which account is liquidated
-
-    // Structs
-
-    struct Market {
-        string symbol;
-        address feed;
-        uint256 maxLeverage;
-        uint256 maxOI;
-        uint256 fee; // in bps
-        uint256 fundingFactor; // Yearly funding rate if OI is completely skewed to one side. In bps.
-        uint256 minSize;
-        uint256 minSettlementTime; // time before keepers can execute order (price finality) if chainlink price didn't change
-    }
-
-    struct Order {
-        uint256 orderId;
-        address user;
-        string market;
-        uint256 price;
-        bool isLong;
-        bool isReduceOnly;
-        uint8 orderType; // 0 = market, 1 = limit, 2 = stop
-        uint256 margin;
-        uint256 size;
-        uint256 fee;
-        uint256 timestamp;
-    }
-
-    struct Position {
-        address user;
-        string market;
-        bool isLong;
-        uint256 size;
-        uint256 margin;
-        int256 fundingTracker;
-        uint256 price;
-        uint256 timestamp;
-    }
-
-    // Variables
-
-    uint256 public orderId;
 
     uint256 public bufferBalance;
     uint256 public poolBalance;
     uint256 public poolLastPaid;
 
     uint256 public bufferPayoutPeriod = 7 days;
+
+    uint256 internal orderId;
 
     mapping(uint256 => Order) private orders;
     mapping(address => EnumerableSet.UintSet) private userOrderIds; // user => [order ids..]
@@ -105,15 +67,29 @@ contract Store {
 
     // Funding
     uint256 public constant fundingInterval = 1 hours; // In seconds.
-
     mapping(string => int256) private fundingTrackers; // market => funding tracker (long) (short is opposite) // in UNIT * bps
     mapping(string => uint256) private fundingLastUpdated; // market => last time fundingTracker was updated. In seconds.
+
+    // Modifiers
+
+    modifier onlyContract() {
+        require(msg.sender == trade || msg.sender == pool, "!contract");
+        _;
+    }
+
+    modifier onlyGov() {
+        require(msg.sender == gov, "!gov");
+        _;
+    }
 
     constructor() {
         gov = msg.sender;
     }
 
+    // Gov methods
+
     function updateGov(address _gov) external onlyGov {
+        require(_gov != address(0), "!address");
         gov = _gov;
     }
 
@@ -124,14 +100,11 @@ contract Store {
         clp = _clp;
     }
 
-    // _weth = WMATIC on Polygon
     function linkUniswap(address _swapRouter, address _quoter, address _weth) external onlyGov {
         swapRouter = _swapRouter;
         quoter = _quoter;
-        weth = _weth;
+        weth = _weth; // _weth = WMATIC on Polygon
     }
-
-    // Gov methods
 
     function setPoolFeeShare(uint256 amount) external onlyGov {
         poolFeeShare = amount;
@@ -155,7 +128,7 @@ contract Store {
         bufferPayoutPeriod = amount;
     }
 
-    function setMarket(string memory market, Market memory marketInfo) external onlyGov {
+    function setMarket(string calldata market, Market calldata marketInfo) external onlyGov {
         require(marketInfo.fee <= MAX_FEE, "!max-fee");
         markets[market] = marketInfo;
         for (uint256 i = 0; i < marketList.length; i++) {
@@ -174,16 +147,16 @@ contract Store {
         IERC20(currency).safeTransfer(user, amount);
     }
 
-    function getCLPSupply() external view onlyContract returns (uint256) {
-        return IERC20(clp).totalSupply();
-    }
-
     function mintCLP(address user, uint256 amount) external onlyContract {
-        CLP(clp).mint(user, amount);
+        ICLP(clp).mint(user, amount);
     }
 
     function burnCLP(address user, uint256 amount) external onlyContract {
-        CLP(clp).burn(user, amount);
+        ICLP(clp).burn(user, amount);
+    }
+
+    function getCLPSupply() external view returns (uint256) {
+        return IERC20(clp).totalSupply();
     }
 
     function swapExactInputSingle(address user, uint256 amountIn, uint256 amountOutMin, address tokenIn, uint24 poolFee)
@@ -249,7 +222,7 @@ contract Store {
         poolBalance -= amount;
     }
 
-    function getUserPoolBalance(address user) public view returns (uint256) {
+    function getUserPoolBalance(address user) external view returns (uint256) {
         uint256 clpSupply = IERC20(clp).totalSupply();
         if (clpSupply == 0) return 0;
         return IERC20(clp).balanceOf(user) * poolBalance / clpSupply;
@@ -295,7 +268,7 @@ contract Store {
         return usersWithLockedMargin.at(i);
     }
 
-    function incrementOI(string memory market, uint256 size, bool isLong) external onlyContract {
+    function incrementOI(string calldata market, uint256 size, bool isLong) external onlyContract {
         if (isLong) {
             OILong[market] += size;
             require(markets[market].maxOI >= OILong[market], "!max-oi");
@@ -305,7 +278,7 @@ contract Store {
         }
     }
 
-    function decrementOI(string memory market, uint256 size, bool isLong) external onlyContract {
+    function decrementOI(string calldata market, uint256 size, bool isLong) external onlyContract {
         if (isLong) {
             if (size > OILong[market]) {
                 OILong[market] = 0;
@@ -321,11 +294,11 @@ contract Store {
         }
     }
 
-    function getOILong(string memory market) external view returns (uint256) {
+    function getOILong(string calldata market) external view returns (uint256) {
         return OILong[market];
     }
 
-    function getOIShort(string memory market) external view returns (uint256) {
+    function getOIShort(string calldata market) external view returns (uint256) {
         return OIShort[market];
     }
 
@@ -342,7 +315,7 @@ contract Store {
         return nextOrderId;
     }
 
-    function updateOrder(Order memory order) external onlyContract {
+    function updateOrder(Order calldata order) external onlyContract {
         orders[order.orderId] = order;
     }
 
@@ -372,23 +345,18 @@ contract Store {
         return _orders;
     }
 
-    function addOrUpdatePosition(Position memory position) external onlyContract {
+    function addOrUpdatePosition(Position calldata position) external onlyContract {
         bytes32 key = _getPositionKey(position.user, position.market);
         positions[key] = position;
         positionKeysForUser[position.user].add(key);
         positionKeys.add(key);
     }
 
-    function removePosition(address user, string memory market) external onlyContract {
+    function removePosition(address user, string calldata market) external onlyContract {
         bytes32 key = _getPositionKey(user, market);
         positionKeysForUser[user].remove(key);
         positionKeys.remove(key);
         delete positions[key];
-    }
-
-    function getPosition(address user, string memory market) public view returns (Position memory position) {
-        bytes32 key = _getPositionKey(user, market);
-        return positions[key];
     }
 
     function getUserPositions(address user) external view returns (Position[] memory _positions) {
@@ -400,11 +368,16 @@ contract Store {
         return _positions;
     }
 
-    function _getPositionKey(address user, string memory market) internal pure returns (bytes32) {
+    function getPosition(address user, string calldata market) public view returns (Position memory position) {
+        bytes32 key = _getPositionKey(user, market);
+        return positions[key];
+    }
+
+    function _getPositionKey(address user, string calldata market) internal pure returns (bytes32) {
         return keccak256(abi.encodePacked(user, market));
     }
 
-    function getMarket(string memory market) external view returns (Market memory _market) {
+    function getMarket(string calldata market) external view returns (Market memory _market) {
         return markets[market];
     }
 
@@ -412,33 +385,23 @@ contract Store {
         return marketList;
     }
 
-    function getFundingLastUpdated(string memory market) external view returns (uint256) {
+    function getFundingLastUpdated(string calldata market) external view returns (uint256) {
         return fundingLastUpdated[market];
     }
 
-    function getFundingFactor(string memory market) external view returns (uint256) {
+    function getFundingFactor(string calldata market) external view returns (uint256) {
         return markets[market].fundingFactor;
     }
 
-    function getFundingTracker(string memory market) external view returns (int256) {
+    function getFundingTracker(string calldata market) external view returns (int256) {
         return fundingTrackers[market];
     }
 
-    function setFundingLastUpdated(string memory market, uint256 timestamp) external onlyContract {
+    function setFundingLastUpdated(string calldata market, uint256 timestamp) external onlyContract {
         fundingLastUpdated[market] = timestamp;
     }
 
-    function updateFundingTracker(string memory market, int256 fundingIncrement) external onlyContract {
+    function updateFundingTracker(string calldata market, int256 fundingIncrement) external onlyContract {
         fundingTrackers[market] += fundingIncrement;
-    }
-
-    modifier onlyContract() {
-        require(msg.sender == trade || msg.sender == pool, "!contract");
-        _;
-    }
-
-    modifier onlyGov() {
-        require(msg.sender == gov, "!gov");
-        _;
     }
 }
