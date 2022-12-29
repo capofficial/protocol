@@ -1,18 +1,15 @@
 //SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import "./Setup.t.sol";
+import "./utils/TestUtils.sol";
 
-contract PoolTest is SetupTest {
+contract PoolTest is TestUtils {
     // Events
     event AddLiquidity(address indexed user, uint256 amount, uint256 clpAmount, uint256 poolBalance);
     event RemoveLiquidity(
         address indexed user, uint256 amount, uint256 feeAmount, uint256 clpAmount, uint256 poolBalance
     );
     event Transfer(address indexed from, address indexed to, uint256 value);
-
-    // Constants
-    uint256 public constant BPS_DIVIDER = 10000;
 
     function setUp() public virtual override {
         super.setUp();
@@ -80,25 +77,38 @@ contract PoolTest is SetupTest {
     }
 
     function testCreditFee() public {
-        // submit order with size of 10k USDC => fee = 100 USDC (45 Pool, 45 Treasury, 10 Keeper)
-        vm.startPrank(user);
-        trade.deposit(10000 * CURRENCY_UNIT);
-        trade.submitOrder(btcLong, 0, 0);
-        vm.stopPrank();
+        _depositAndSubmitOrders();
 
-        uint256 oldKeeperBalance = IERC20(usdc).balanceOf(address(this));
-        // minSettlementTime is 1 minutes -> fast forward 2 minutes
-        skip(2 minutes);
+        // ETH and BTC Long are executed, position size is 10k each, fee is 100 USDC each
+        uint256 fee = 200 * CURRENCY_UNIT;
+        uint256 keeperFee = fee * store.keeperFeeShare() / BPS_DIVIDER;
+        fee -= keeperFee;
+        uint256 poolFee = fee * store.poolFeeShare() / BPS_DIVIDER;
+        uint256 treasuryFee = fee - poolFee;
+
+        assertEq(store.poolBalance(), poolFee, "!poolFee");
+        assertEq(IERC20(usdc).balanceOf(treasury), treasuryFee, "!treasuryFee");
+        assertEq(IERC20(usdc).balanceOf(address(this)), INITIAL_BALANCE + keeperFee, "!keeperFee");
+    }
+
+    function testRevertPoolBalance() public {
+        _depositAndSubmitOrders();
+
+        // add pool liquidity
+        pool.addLiquidity(1000 * CURRENCY_UNIT);
+        assertGt(store.poolBalance(), 1000 * CURRENCY_UNIT, "!poolBalance");
+
+        // set ETH price to 6000 USDC, TP order should execute -> user made 2k profit
+        chainlink.setPrice(ethFeed, 6000);
+
+        // pool liquidity is 1k, not enough to pay trader profit
+        vm.expectRevert("!pool-balance");
         trade.executeOrders();
-
-        assertEq(store.poolBalance(), 45 * CURRENCY_UNIT, "!poolFee");
-        assertEq(IERC20(usdc).balanceOf(treasury), 45 * CURRENCY_UNIT, "!treasuryFee");
-        assertEq(IERC20(usdc).balanceOf(address(this)), oldKeeperBalance + 10 * CURRENCY_UNIT, "!keeperFee");
     }
 
     /// @param amount amount of liquidity to add and remove (Fuzzer)
     function testFuzzAddAndRemoveLiquidity(uint256 amount) public {
-        vm.assume(amount > 1 * CURRENCY_UNIT && amount <= 1000000 * CURRENCY_UNIT);
+        vm.assume(amount > 1 * CURRENCY_UNIT && amount <= INITIAL_BALANCE);
 
         // expect AddLiquidity event
         vm.expectEmit(true, true, true, true);
@@ -108,7 +118,6 @@ contract PoolTest is SetupTest {
 
         // pool balance should be equal to amount + fees
         assertEq(store.poolBalance(), amount, "poolBalance != amount");
-
 
         uint256 feeAmount = amount * store.poolWithdrawalFee() / BPS_DIVIDER;
         uint256 amountMinusFee = amount - feeAmount;
@@ -123,19 +132,5 @@ contract PoolTest is SetupTest {
         emit RemoveLiquidity(user, amount, feeAmount, clpAmount, feeAmount);
         vm.prank(user);
         pool.removeLiquidity(amount);
-    }
-
-    function _depositAndSubmitOrders() internal {
-        vm.startPrank(user);
-
-        trade.deposit(10000 * CURRENCY_UNIT);
-        // submit two test orders with stop loss 10% below current price and TP 20% above current price
-        trade.submitOrder(ethLong, 6000, 4500);
-        trade.submitOrder(btcLong, 120_000, 90000);
-        // minSettlementTime is 1 minutes -> fast forward 2 minutes
-        skip(2 minutes);
-        trade.executeOrders();
-
-        vm.stopPrank();
     }
 }

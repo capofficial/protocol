@@ -1,19 +1,22 @@
 //SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import "./Setup.t.sol";
+import "./utils/TestUtils.sol";
 
-contract TradeTest is SetupTest {
+contract TradeTest is TestUtils {
+    event Deposit(address indexed user, uint256 amount);
+    event Withdraw(address indexed user, uint256 amount);
+
     function setUp() public virtual override {
         super.setUp();
 
         vm.startPrank(user);
-
-        // deposit 5000 USDC for trading
-        trade.deposit(5000 * CURRENCY_UNIT);
     }
 
     function testOrderAndPositionStorage() public {
+        // deposit 5000 USDC for trading
+        trade.deposit(5000 * CURRENCY_UNIT);
+
         // submit ETH long with stop loss
         trade.submitOrder(ethLong, 0, 4500);
 
@@ -44,6 +47,9 @@ contract TradeTest is SetupTest {
     }
 
     function testExceedFreeMargin() public {
+        // deposit 5000 USDC for trading
+        trade.deposit(5000 * CURRENCY_UNIT);
+
         // submit first order with 2500 margin
         trade.submitOrder(ethLong, 0, 0);
         assertEq(2500 * CURRENCY_UNIT, store.getLockedMargin(user), "lockedMargin != 2500 USDC");
@@ -76,5 +82,48 @@ contract TradeTest is SetupTest {
         // submitting new orders shouldnt be possible
         vm.expectRevert("!equity");
         trade.submitOrder(ethLong, 0, 0);
+    }
+
+    /// @param amount deposit amount
+    function testFuzzDepositAndWithdraw(uint256 amount) public {
+        vm.assume(amount > 1 && amount <= INITIAL_BALANCE);
+
+        // expect Deposit event
+        vm.expectEmit(true, true, true, true);
+        emit Deposit(user, amount);
+        trade.deposit(amount);
+
+        // balance should be equal to amount
+        assertEq(store.getBalance(user), amount, "!userBalance");
+        assertEq(IERC20(usdc).balanceOf(address(store)), amount, "!storeBalance");
+
+        // expect withdraw event
+        vm.expectEmit(true, true, true, true);
+        emit Withdraw(user, amount);
+        trade.withdraw(amount);
+    }
+
+    function testRevertWithdraw() public {
+        vm.expectRevert("!amount");
+        trade.withdraw(0);
+
+        trade.deposit(5000 * CURRENCY_UNIT);
+        trade.submitOrder(ethLong, 0, 0);
+
+        // locked margin = 2500 USDC, orderfee = 100 USDC => withdrawing more than 2400 USDC shouldnt work
+        vm.expectRevert("!equity");
+        trade.withdraw(2401 * CURRENCY_UNIT);
+
+        // minSettlementTime is 1 minutes -> fast forward 2 minutes
+        skip(2 minutes);
+        trade.executeOrders();
+
+        // set eth price above 5k USD so trade is in profit
+        chainlink.setPrice(ethFeed, 5100);
+
+        // withdrawing should work
+        vm.expectEmit(true, true, true, true);
+        emit Withdraw(user, 2501 * CURRENCY_UNIT);
+        trade.withdraw(2501 * CURRENCY_UNIT);
     }
 }

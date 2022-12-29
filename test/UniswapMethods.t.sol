@@ -1,7 +1,7 @@
 //SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import "./Setup.t.sol";
+import "./utils/SetupTest.sol";
 
 contract UniswapTest is SetupTest {
     uint256 arbitrum;
