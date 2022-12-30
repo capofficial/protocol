@@ -40,6 +40,11 @@ FOUNDRY_PROFILE=lite forge test --match-contract <test_contract_name> -vvvv
 FOUNDRY_PROFILE=lite forge test --match-test <test_function_name> -vvvv
 ```
 
+Static code analysis with slither
+```
+slither .
+```
+
 ## Deploying locally
 
 ```
@@ -53,7 +58,7 @@ Set environment variables in .env and load them with
 ```
 source .env
 ```
-Then run the deploy scripts, below is an example for Arbitrum
+Then run the deploy script
 ```
-forge script script/DeployArbitrum.sol:DeployArbitrum --rpc-url $ARBITRUM_RPC_URL --broadcast --verify --etherscan-api-key $ARBITRUM_ETHERSCAN_KEY -vvvv
+forge script script/DeployProd.sol:DeployProd --broadcast --verify -vvvv
 ```
