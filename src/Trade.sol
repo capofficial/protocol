@@ -51,11 +51,9 @@ contract Trade is ITrade {
         external
         payable
     {
-        if (msg.value == 0) {
-            require(amountIn > 0, "!amount");
-            require(tokenIn != address(0), "!address");
-        }
-
+        require(poolFee > 0, "!poolFee");
+        require(msg.value != 0 || amountIn > 0 && tokenIn != address(0), "!input");
+        
         address user = msg.sender;
 
         // executes swap, tokens will be deposited in the store contract
@@ -148,6 +146,7 @@ contract Trade is ITrade {
         params.timestamp = block.timestamp;
 
         uint256 orderId = store.addOrder(params);
+        
         emit OrderCreated(
             orderId,
             params.user,
@@ -227,9 +226,11 @@ contract Trade is ITrade {
         require(order.user == msg.sender, "!user");
         require(order.size > 0, "!order");
         require(order.orderType != 0, "!market-order");
+      
         IStore.Market memory market = store.getMarket(order.market);
         uint256 chainlinkPrice = chainlink.getPrice(market.feed);
         require(chainlinkPrice > 0, "!chainlink");
+      
         if (
             order.orderType == 1 && order.isLong && chainlinkPrice <= price
                 || order.orderType == 1 && !order.isLong && chainlinkPrice >= price
@@ -239,6 +240,7 @@ contract Trade is ITrade {
             if (order.orderType == 1) order.orderType = 2;
             if (order.orderType == 2) order.orderType = 1;
         }
+      
         order.price = price;
         store.updateOrder(order);
     }
@@ -254,12 +256,15 @@ contract Trade is ITrade {
         require(order.user == msg.sender, "!user");
         require(order.size > 0, "!order");
         require(order.orderType != 0, "!market-order");
+
         if (!order.isReduceOnly) {
             store.unlockMargin(order.user, order.margin);
         }
+
+        store.removeOrder(orderId);
         store.incrementBalance(order.user, order.fee);
         store.transferOut(order.user, order.margin + order.fee);
-        store.removeOrder(orderId);
+
         emit OrderCancelled(orderId, order.user);
     }
 
@@ -332,14 +337,6 @@ contract Trade is ITrade {
     function _increasePosition(IStore.Order memory order, uint256 price, address keeper) internal {
         IStore.Position memory position = store.getPosition(order.user, order.market);
 
-        uint256 fee = order.fee;
-        uint256 keeperFee = fee * store.keeperFeeShare() / BPS_DIVIDER;
-        fee -= keeperFee;
-
-        pool.creditFee(order.user, order.market, fee, false);
-
-        store.transferOut(keeper, keeperFee);
-
         store.incrementOI(order.market, order.size, order.isLong);
 
         _updateFundingTracker(order.market);
@@ -363,6 +360,13 @@ contract Trade is ITrade {
         if (order.orderId > 0) {
             store.removeOrder(order.orderId);
         }
+
+        // Credit fees
+        uint256 fee = order.fee;
+        uint256 keeperFee = fee * store.keeperFeeShare() / BPS_DIVIDER;
+        fee -= keeperFee;
+        pool.creditFee(order.user, order.market, fee, false);
+        store.transferOut(keeper, keeperFee);
 
         emit PositionIncreased(
             order.orderId,
@@ -401,18 +405,8 @@ contract Trade is ITrade {
             remainingOrderMargin = order.margin - executedOrderMargin;
         }
 
-        uint256 fee = order.fee;
-        uint256 keeperFee = fee * store.keeperFeeShare() / BPS_DIVIDER;
-        fee -= keeperFee;
-
-        pool.creditFee(order.user, order.market, fee, false);
-
-        store.transferOut(keeper, keeperFee);
-
         // Funding update
-
         store.decrementOI(order.market, order.size, position.isLong);
-
         _updateFundingTracker(order.market);
 
         // P/L
@@ -457,26 +451,7 @@ contract Trade is ITrade {
 
         store.removeOrder(order.orderId);
 
-        emit PositionDecreased(
-            order.orderId,
-            order.user,
-            order.market,
-            order.isLong,
-            executedOrderSize,
-            executedPositionMargin,
-            price,
-            position.margin,
-            position.size,
-            position.price,
-            position.fundingTracker,
-            fee,
-            keeperFee,
-            pnl,
-            fundingFee
-            );
-
         // Open position in opposite direction if size remains
-
         if (!order.isReduceOnly && remainingOrderSize > 0) {
             IStore.Order memory nextOrder = IStore.Order({
                 orderId: 0,
@@ -494,6 +469,31 @@ contract Trade is ITrade {
 
             _increasePosition(nextOrder, price, keeper);
         }
+
+        // Credit fees
+        uint256 fee = order.fee;
+        uint256 keeperFee = fee * store.keeperFeeShare() / BPS_DIVIDER;
+        fee -= keeperFee;
+        pool.creditFee(order.user, order.market, fee, false);
+        store.transferOut(keeper, keeperFee);
+
+        emit PositionDecreased(
+            order.orderId,
+            order.user,
+            order.market,
+            order.isLong,
+            executedOrderSize,
+            executedPositionMargin,
+            price,
+            position.margin,
+            position.size,
+            position.price,
+            position.fundingTracker,
+            fee,
+            keeperFee,
+            pnl,
+            fundingFee
+            );
     }
 
     function closePositionWithoutProfit(string memory _market) external {
@@ -503,10 +503,6 @@ contract Trade is ITrade {
         require(position.size > 0, "!position");
 
         IStore.Market memory market = store.getMarket(_market);
-
-        uint256 fee = position.size * market.fee / BPS_DIVIDER;
-
-        pool.creditFee(user, _market, fee, false);
 
         store.decrementOI(_market, position.size, position.isLong);
 
@@ -525,6 +521,10 @@ contract Trade is ITrade {
 
         store.unlockMargin(user, position.margin);
         store.removePosition(user, _market);
+
+        // Credit fees
+        uint256 fee = position.size * market.fee / BPS_DIVIDER;
+        pool.creditFee(user, _market, fee, false);
 
         emit PositionDecreased(
             0,
@@ -562,7 +562,6 @@ contract Trade is ITrade {
                 liquidatorFees += liquidatorFee;
 
                 pool.creditTraderLoss(user, position.market, position.margin - fee - liquidatorFee);
-                pool.creditFee(user, position.market, fee, true);
                 store.decrementOI(position.market, position.size, position.isLong);
                 _updateFundingTracker(position.market);
                 store.removePosition(user, position.market);
@@ -570,6 +569,9 @@ contract Trade is ITrade {
                 store.unlockMargin(user, position.margin);
 
                 uint256 chainlinkPrice = chainlink.getPrice(market.feed);
+
+                // Credit fees
+                pool.creditFee(user, position.market, fee, true);
 
                 emit PositionLiquidated(
                     user,

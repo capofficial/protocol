@@ -60,10 +60,8 @@ contract Pool is IPool {
         external
         payable
     {
-        if (msg.value == 0) {
-            require(amountIn > 0, "!amount");
-            require(tokenIn != address(0), "!address");
-        }
+        require(poolFee > 0, "!poolFee");
+        require(msg.value != 0 || amountIn > 0 && tokenIn != address(0), "!input");
 
         address user = msg.sender;
 
