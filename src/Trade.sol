@@ -53,7 +53,7 @@ contract Trade is ITrade {
     {
         require(poolFee > 0, "!poolFee");
         require(msg.value != 0 || amountIn > 0 && tokenIn != address(0), "!input");
-        
+
         address user = msg.sender;
 
         // executes swap, tokens will be deposited in the store contract
@@ -146,7 +146,7 @@ contract Trade is ITrade {
         params.timestamp = block.timestamp;
 
         uint256 orderId = store.addOrder(params);
-        
+
         emit OrderCreated(
             orderId,
             params.user,
@@ -226,11 +226,11 @@ contract Trade is ITrade {
         require(order.user == msg.sender, "!user");
         require(order.size > 0, "!order");
         require(order.orderType != 0, "!market-order");
-      
+
         IStore.Market memory market = store.getMarket(order.market);
         uint256 chainlinkPrice = chainlink.getPrice(market.feed);
         require(chainlinkPrice > 0, "!chainlink");
-      
+
         if (
             order.orderType == 1 && order.isLong && chainlinkPrice <= price
                 || order.orderType == 1 && !order.isLong && chainlinkPrice >= price
@@ -238,9 +238,9 @@ contract Trade is ITrade {
                 || order.orderType == 2 && !order.isLong && chainlinkPrice <= price
         ) {
             if (order.orderType == 1) order.orderType = 2;
-            if (order.orderType == 2) order.orderType = 1;
+            else order.orderType = 1;
         }
-      
+
         order.price = price;
         store.updateOrder(order);
     }
@@ -263,7 +263,6 @@ contract Trade is ITrade {
 
         store.removeOrder(orderId);
         store.incrementBalance(order.user, order.fee);
-        store.transferOut(order.user, order.margin + order.fee);
 
         emit OrderCancelled(orderId, order.user);
     }
