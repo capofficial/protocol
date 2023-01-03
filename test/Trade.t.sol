@@ -15,14 +15,17 @@ contract TradeTest is TestUtils {
 
     function testOrderAndPositionStorage() public {
         // deposit 5000 USDC for trading
-        trade.deposit(5000 * CURRENCY_UNIT);
+        trade.deposit(INITIAL_TRADE_DEPOSIT);
 
         // submit ETH long with stop loss
         trade.submitOrder(ethLong, 0, 4500);
 
+        // console.log orders and positions? true = yes, false = no
+        bool flag = false;
+
         // should be two orders: ETH long and SL
-        assertEq(_printOrders(), 2, "!orderCount");
-        assertEq(_printUserPositions(user), 0, "!positionCount");
+        assertEq(_printOrders(flag), 2, "!orderCount");
+        assertEq(_printUserPositions(user, flag), 0, "!positionCount");
 
         console.log("-------------------------------");
         console.log();
@@ -32,8 +35,8 @@ contract TradeTest is TestUtils {
         trade.executeOrders();
 
         // should be one SL order and one long position
-        assertEq(_printOrders(), 1, "!orderCount");
-        assertEq(_printUserPositions(user), 1, "!positionCount");
+        assertEq(_printOrders(flag), 1, "!orderCount");
+        assertEq(_printUserPositions(user, flag), 1, "!positionCount");
 
         console.log("-------------------------------");
 
@@ -42,13 +45,13 @@ contract TradeTest is TestUtils {
         trade.executeOrders();
 
         // should be zero orders, zero positions
-        assertEq(_printOrders(), 0, "!orderCount");
-        assertEq(_printUserPositions(user), 0, "!positionCount");
+        assertEq(_printOrders(flag), 0, "!orderCount");
+        assertEq(_printUserPositions(user, flag), 0, "!positionCount");
     }
 
     function testExceedFreeMargin() public {
         // deposit 5000 USDC for trading
-        trade.deposit(5000 * CURRENCY_UNIT);
+        trade.deposit(INITIAL_TRADE_DEPOSIT);
 
         // submit first order with 2500 margin
         trade.submitOrder(ethLong, 0, 0);
@@ -107,7 +110,7 @@ contract TradeTest is TestUtils {
         vm.expectRevert("!amount");
         trade.withdraw(0);
 
-        trade.deposit(5000 * CURRENCY_UNIT);
+        trade.deposit(INITIAL_TRADE_DEPOSIT);
         trade.submitOrder(ethLong, 0, 0);
 
         // locked margin = 2500 USDC, orderfee = 100 USDC => withdrawing more than 2400 USDC shouldnt work
@@ -125,5 +128,67 @@ contract TradeTest is TestUtils {
         vm.expectEmit(true, true, true, true);
         emit Withdraw(user, 2501 * CURRENCY_UNIT);
         trade.withdraw(2501 * CURRENCY_UNIT);
+    }
+
+    function testRevertOrderType() public {
+        trade.deposit(INITIAL_TRADE_DEPOSIT);
+
+        ethLongLimit.price = 6000;
+        // orderType == 1 && isLong == true && chainLinkPrice <= order.price, should revert
+        vm.expectRevert("!orderType");
+        trade.submitOrder(ethLongLimit, 0, 0);
+    }
+
+    function testUpdateOrder() public {
+        trade.deposit(INITIAL_TRADE_DEPOSIT);
+
+        trade.submitOrder(ethLongLimit, 0, 0);
+
+        // update order
+        trade.updateOrder(1, 6000);
+        IStore.Order[] memory _orders = store.getOrders();
+
+        // order type from 1 => 2
+        assertEq(_orders[0].orderType, 2);
+        // price should be 6000
+        assertEq(_orders[0].price, 6000);
+    }
+
+    function testRevertUpdateOrder() public {
+        trade.deposit(INITIAL_TRADE_DEPOSIT);
+
+        // submit ETH market long
+        trade.submitOrder(ethLong, 0, 0);
+        vm.expectRevert("!market-order");
+        trade.updateOrder(1, 5000);
+    }
+
+    function testCancelOrder() public {
+        trade.deposit(INITIAL_TRADE_DEPOSIT);
+
+        trade.submitOrder(ethLongLimit, 0, 0);
+        trade.cancelOrder(1);
+
+        assertEq(store.getLockedMargin(user), 0);
+
+        // fee should be credited back to user
+        assertEq(store.getBalance(user), INITIAL_TRADE_DEPOSIT);
+    }
+
+    function testExecutableOrderIds() public {
+        trade.deposit(INITIAL_TRADE_DEPOSIT);
+
+        // console.log orders and positions? true = yes, false = no
+        bool flag = false;
+
+        trade.submitOrder(ethLong, 4000, 7000);
+        _printOrders(flag);
+
+        // minSettlementTime is 1 minutes -> fast forward 2 minutes
+        skip(2 minutes);
+        trade.executeOrders();
+
+        _printOrders(flag);
+        _printUserPositions(user, flag);
     }
 }
