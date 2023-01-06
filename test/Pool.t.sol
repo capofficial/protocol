@@ -88,7 +88,7 @@ contract PoolTest is TestUtils {
 
         assertEq(store.poolBalance(), poolFee, "!poolFee");
         assertEq(IERC20(usdc).balanceOf(treasury), treasuryFee, "!treasuryFee");
-        assertEq(IERC20(usdc).balanceOf(address(this)), INITIAL_BALANCE + keeperFee, "!keeperFee");
+        assertEq(store.getBalance(address(this)), keeperFee, "!keeperFee");
     }
 
     function testRevertPoolBalance() public {

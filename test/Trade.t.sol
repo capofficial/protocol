@@ -178,17 +178,109 @@ contract TradeTest is TestUtils {
     function testExecutableOrderIds() public {
         trade.deposit(INITIAL_TRADE_DEPOSIT);
 
-        // console.log orders and positions? true = yes, false = no
-        bool flag = false;
+        // submit three orders:
+        // 1. eth long, is executable
+        // 2. take profit at 6000 USD
+        // 3. stop loss at 4000 USD
+        trade.submitOrder(ethLong, 6000, 4000);
 
-        trade.submitOrder(ethLong, 4000, 7000);
-        _printOrders(flag);
+        // minSettlementTime is 1 minutes -> fast forward 2 minutes
+        skip(2 minutes);
+
+        uint256[] memory orderIdsToExecute = trade.getExecutableOrderIds();
+        assertEq(orderIdsToExecute[0], 1);
+        assertEq(orderIdsToExecute.length, 1);
+
+        // set chainlinkprice above TP price
+        chainlink.setPrice(ethFeed, 6001);
+        orderIdsToExecute = trade.getExecutableOrderIds();
+
+        // initial long order and TP order should be executable
+        assertEq(orderIdsToExecute[0], 1);
+        assertEq(orderIdsToExecute[1], 2);
+        assertEq(orderIdsToExecute.length, 2);
+
+        // set chainlinkprice below SL price
+        chainlink.setPrice(ethFeed, 3999);
+        orderIdsToExecute = trade.getExecutableOrderIds();
+
+        // initial long order and SL order should be executable
+        assertEq(orderIdsToExecute[0], 1);
+        assertEq(orderIdsToExecute[1], 3);
+        assertEq(orderIdsToExecute.length, 2);
+    }
+
+    function testClosePositionWithoutProfit() public {
+        trade.deposit(INITIAL_TRADE_DEPOSIT);
+        // submit order with stop loss 10% below current price and TP 20% above current price
+        trade.submitOrder(ethLong, 6000, 4500);
 
         // minSettlementTime is 1 minutes -> fast forward 2 minutes
         skip(2 minutes);
         trade.executeOrders();
 
-        _printOrders(flag);
-        _printUserPositions(user, flag);
+        trade.closePositionWithoutProfit("ETH-USD");
+
+        // user should have margin back
+        assertEq(store.getLockedMargin(user), 0);
+    }
+
+    function testRevertClosePositionWithoutProfit() public {
+        trade.deposit(INITIAL_TRADE_DEPOSIT);
+        // submit order with stop loss 10% below current price and TP 20% above current price
+        trade.submitOrder(ethLong, 6000, 4500);
+
+        // minSettlementTime is 1 minutes -> fast forward 2 minutes
+        skip(2 minutes);
+        trade.executeOrders();
+
+        // set ETH price below position price
+        chainlink.setPrice(ethFeed, 4999);
+
+        // call should revert since position is not in profit
+        vm.expectRevert("pnl < 0");
+        trade.closePositionWithoutProfit("ETH-USD");
+    }
+
+    function testLiquidateUsers() public {
+        trade.deposit(INITIAL_TRADE_DEPOSIT);
+        // submit market long: size 10k, margin 2.5k
+        trade.submitOrder(ethLong, 0, 0);
+        vm.stopPrank();
+
+        uint256 orderFee = 100 * CURRENCY_UNIT;
+
+        // minSettlementTime is 1 minutes -> fast forward 2 minutes
+        skip(2 minutes);
+        trade.executeOrders();
+
+        // marginLevel = equity / lockedMargin and equity = userBalance + unrealized P/L
+        // liquidation happens when marginLevel < 20%
+        // lockedMargin = 2.5k and userBalance = initial_deposit - order.fee = 5k - 100 = 4900
+        // => liquidation when unrealized P/L = -4400 USD
+        // leverage of position is 5, initial price of ETH was 5k, so ETH has to fall below 2800 USD
+        chainlink.setPrice(ethFeed, 2800);
+
+        // ETH price is right at liquidation level, user shouldnt get liquidated yet
+        address[] memory usersToLiquidate = trade.getLiquidatableUsers();
+        assertEq(usersToLiquidate.length, 0);
+
+        chainlink.setPrice(ethFeed, 2799);
+        // ETH price is right below liquidation level
+        usersToLiquidate = trade.getLiquidatableUsers();
+        assertEq(usersToLiquidate[0], user);
+
+        // liquidate user
+        vm.prank(user2);
+        trade.liquidateUsers();
+
+        // liquidation fee should have been credited to user2
+        assertEq(store.getBalance(user2), 10 * CURRENCY_UNIT);
+
+        // user should have lost his margin
+        assertEq(store.getLockedMargin(user), 0);
+
+        // and balance should be INITIAL_DEPOSIT - order.fee - order.margin
+        assertEq(store.getBalance(user), INITIAL_TRADE_DEPOSIT - orderFee - ethLong.margin);
     }
 }
