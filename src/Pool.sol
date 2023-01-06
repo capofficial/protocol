@@ -21,7 +21,7 @@ contract Pool is IPool {
     }
 
     modifier onlyGov() {
-        require(msg.sender == gov, "!gov");
+        require(msg.sender == gov, "!governance");
         _;
     }
 
@@ -31,7 +31,11 @@ contract Pool is IPool {
 
     function updateGov(address _gov) external onlyGov {
         require(_gov != address(0), "!address");
+
+        address oldGov = gov;
         gov = _gov;
+
+        emit GovernanceUpdated(oldGov, _gov);
     }
 
     function link(address _trade, address _store, address _treasury) external onlyGov {

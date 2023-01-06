@@ -18,7 +18,7 @@ contract Trade is ITrade {
 
     // Modifiers
     modifier onlyGov() {
-        require(msg.sender == gov, "!gov");
+        require(msg.sender == gov, "!governance");
         _;
     }
 
@@ -29,7 +29,11 @@ contract Trade is ITrade {
     // Gov methods
     function updateGov(address _gov) external onlyGov {
         require(_gov != address(0), "!address");
+
+        address oldGov = gov;
         gov = _gov;
+
+        emit GovernanceUpdated(oldGov, _gov);
     }
 
     function link(address _chainlink, address _pool, address _store) external onlyGov {

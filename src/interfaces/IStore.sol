@@ -2,13 +2,16 @@
 pragma solidity ^0.8.13;
 
 interface IStore {
+    // Events
+    event GovernanceUpdated(address indexed oldGov, address indexed newGov);
+
     // Structs
     struct Market {
         string symbol;
         address feed;
         uint16 minSettlementTime; // overflows at ~18hrs
         uint16 maxLeverage; // overflows at 65535
-        uint32 fee; // in bps, overflows at 
+        uint32 fee; // in bps, overflows at 4.3 billion
         uint32 fundingFactor; // Yearly funding rate if OI is completely skewed to one side. In bps.
         uint256 maxOI;
         uint256 minSize;
@@ -21,7 +24,7 @@ interface IStore {
         uint72 orderId; // overflows at 4.7 * 10**21
         address user;
         string market;
-        uint64 timestamp; 
+        uint64 timestamp;
         uint192 fee;
         uint256 price;
         uint256 margin;
@@ -41,13 +44,13 @@ interface IStore {
 
     function BPS_DIVIDER() external view returns (uint256);
 
+    function FUNDING_INTERVAL() external view returns (uint256);
+
     function MAX_FEE() external view returns (uint256);
 
     function MAX_KEEPER_FEE_SHARE() external view returns (uint256);
 
     function MAX_POOL_WITHDRAWAL_FEE() external view returns (uint256);
-
-    function FUNDING_INTERVAL() external view returns (uint256);
 
     function addOrUpdatePosition(Position memory position) external;
 

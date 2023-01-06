@@ -6,6 +6,7 @@ import "./IStore.sol";
 interface ITrade {
     event Deposit(address indexed user, uint256 amount);
     event FundingUpdated(string market, int256 fundingTracker, int256 fundingIncrement);
+    event GovernanceUpdated(address indexed oldGov, address indexed newGov);
     event OrderCancelled(uint256 indexed orderId, address indexed user);
     event OrderCreated(
         uint256 indexed orderId,
