@@ -312,7 +312,7 @@ contract Store is IStore {
     // Orders
     function addOrder(Order memory order) external onlyContract returns (uint256) {
         uint256 nextOrderId = ++orderId;
-        order.orderId = nextOrderId;
+        order.orderId = uint72(nextOrderId);
         orders[nextOrderId] = order;
         userOrderIds[order.user].add(nextOrderId);
         orderIds.add(nextOrderId);

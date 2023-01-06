@@ -142,8 +142,8 @@ contract Trade is ITrade {
 
         // Save order to store
         params.user = user;
-        params.fee = fee;
-        params.timestamp = block.timestamp;
+        params.fee = uint192(fee);
+        params.timestamp = uint64(block.timestamp);
 
         uint256 orderId = store.addOrder(params);
 
@@ -172,7 +172,7 @@ contract Trade is ITrade {
                 margin: 0,
                 size: params.size,
                 fee: params.fee,
-                timestamp: block.timestamp
+                timestamp: uint64(block.timestamp)
             });
             store.decrementBalance(user, fee);
             uint256 tpOrderId = store.addOrder(tpOrder);
@@ -202,7 +202,7 @@ contract Trade is ITrade {
                 margin: 0,
                 size: params.size,
                 fee: params.fee,
-                timestamp: block.timestamp
+                timestamp: uint64(block.timestamp)
             });
             store.decrementBalance(user, fee);
             uint256 slOrderId = store.addOrder(slOrder);
@@ -345,7 +345,7 @@ contract Trade is ITrade {
         if (position.size == 0) {
             position.user = order.user;
             position.market = order.market;
-            position.timestamp = block.timestamp;
+            position.timestamp = uint64(block.timestamp);
             position.isLong = order.isLong;
             position.fundingTracker = store.getFundingTracker(order.market);
         }
@@ -461,9 +461,9 @@ contract Trade is ITrade {
                 price: 0,
                 isLong: order.isLong,
                 orderType: 0,
-                fee: order.fee * remainingOrderSize / order.size,
+                fee: uint192(order.fee * remainingOrderSize / order.size),
                 isReduceOnly: false,
-                timestamp: block.timestamp
+                timestamp: uint64(block.timestamp)
             });
 
             _increasePosition(nextOrder, price, keeper);

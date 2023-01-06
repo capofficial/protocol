@@ -6,37 +6,37 @@ interface IStore {
     struct Market {
         string symbol;
         address feed;
-        uint256 maxLeverage;
+        uint16 minSettlementTime; // overflows at ~18hrs
+        uint16 maxLeverage; // overflows at 65535
+        uint32 fee; // in bps, overflows at 
+        uint32 fundingFactor; // Yearly funding rate if OI is completely skewed to one side. In bps.
         uint256 maxOI;
-        uint256 fee; // in bps
-        uint256 fundingFactor; // Yearly funding rate if OI is completely skewed to one side. In bps.
         uint256 minSize;
-        uint256 minSettlementTime; // time before keepers can execute order (price finality) if chainlink price didn't change
     }
 
     struct Order {
-        uint256 orderId;
-        address user;
-        string market;
-        uint256 price;
         bool isLong;
         bool isReduceOnly;
         uint8 orderType; // 0 = market, 1 = limit, 2 = stop
+        uint72 orderId; // overflows at 4.7 * 10**21
+        address user;
+        string market;
+        uint64 timestamp; 
+        uint192 fee;
+        uint256 price;
         uint256 margin;
         uint256 size;
-        uint256 fee;
-        uint256 timestamp;
     }
 
     struct Position {
+        bool isLong;
+        uint64 timestamp;
         address user;
         string market;
-        bool isLong;
-        uint256 size;
-        uint256 margin;
         int256 fundingTracker;
         uint256 price;
-        uint256 timestamp;
+        uint256 margin;
+        uint256 size;
     }
 
     function BPS_DIVIDER() external view returns (uint256);
