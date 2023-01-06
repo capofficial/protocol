@@ -47,6 +47,8 @@ interface IStore {
 
     function MAX_POOL_WITHDRAWAL_FEE() external view returns (uint256);
 
+    function FUNDING_INTERVAL() external view returns (uint256);
+
     function addOrUpdatePosition(Position memory position) external;
 
     function addOrder(Order memory order) external returns (uint256);
@@ -68,8 +70,6 @@ interface IStore {
     function decrementOI(string memory market, uint256 size, bool isLong) external;
 
     function decrementPoolBalance(uint256 amount) external;
-
-    function fundingInterval() external view returns (uint256);
 
     function getBalance(address user) external view returns (uint256);
 

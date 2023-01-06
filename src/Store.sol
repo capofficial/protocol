@@ -20,6 +20,7 @@ contract Store is IStore {
     uint256 public constant MAX_FEE = 500; // in bps = 5%
     uint256 public constant MAX_KEEPER_FEE_SHARE = 2000; // in bps = 20%
     uint256 public constant MAX_POOL_WITHDRAWAL_FEE = 500; // in bps = 5%
+    uint256 public constant FUNDING_INTERVAL = 1 hours; // In seconds.
 
     // contracts
     address public gov;
@@ -66,7 +67,6 @@ contract Store is IStore {
     EnumerableSet.AddressSet private usersWithLockedMargin; // [users...]
 
     // Funding
-    uint256 public constant fundingInterval = 1 hours; // In seconds.
     mapping(string => int256) private fundingTrackers; // market => funding tracker (long) (short is opposite) // in UNIT * bps
     mapping(string => uint256) private fundingLastUpdated; // market => last time fundingTracker was updated. In seconds.
 
@@ -147,6 +147,7 @@ contract Store is IStore {
         IERC20(currency).safeTransfer(user, amount);
     }
 
+    // CLP methods
     function mintCLP(address user, uint256 amount) external onlyContract {
         ICLP(clp).mint(user, amount);
     }
@@ -159,6 +160,7 @@ contract Store is IStore {
         return IERC20(clp).totalSupply();
     }
 
+    // Uniswap methods
     function swapExactInputSingle(address user, uint256 amountIn, uint256 amountOutMin, address tokenIn, uint24 poolFee)
         external
         payable
@@ -201,6 +203,7 @@ contract Store is IStore {
         return IQuoter(quoter).quoteExactInputSingle(tokenIn, currency, poolFee, amountIn, 0);
     }
 
+    // User balance
     function incrementBalance(address user, uint256 amount) external onlyContract {
         balances[user] += amount;
     }
@@ -214,6 +217,7 @@ contract Store is IStore {
         return balances[user];
     }
 
+    // Pool
     function incrementPoolBalance(uint256 amount) external onlyContract {
         poolBalance += amount;
     }
@@ -222,12 +226,17 @@ contract Store is IStore {
         poolBalance -= amount;
     }
 
+    function setPoolLastPaid(uint256 timestamp) external onlyContract {
+        poolLastPaid = timestamp;
+    }
+
     function getUserPoolBalance(address user) external view returns (uint256) {
         uint256 clpSupply = IERC20(clp).totalSupply();
         if (clpSupply == 0) return 0;
         return IERC20(clp).balanceOf(user) * poolBalance / clpSupply;
     }
 
+    // Buffer
     function incrementBufferBalance(uint256 amount) external onlyContract {
         bufferBalance += amount;
     }
@@ -236,10 +245,7 @@ contract Store is IStore {
         bufferBalance -= amount;
     }
 
-    function setPoolLastPaid(uint256 timestamp) external onlyContract {
-        poolLastPaid = timestamp;
-    }
-
+    // Margin
     function lockMargin(address user, uint256 amount) external onlyContract {
         lockedMargins[user] += amount;
         usersWithLockedMargin.add(user);
@@ -268,6 +274,7 @@ contract Store is IStore {
         return usersWithLockedMargin.at(i);
     }
 
+    // Open interest
     function incrementOI(string calldata market, uint256 size, bool isLong) external onlyContract {
         if (isLong) {
             OILong[market] += size;
@@ -302,10 +309,7 @@ contract Store is IStore {
         return OIShort[market];
     }
 
-    function getOrder(uint256 id) external view returns (Order memory _order) {
-        return orders[id];
-    }
-
+    // Orders
     function addOrder(Order memory order) external onlyContract returns (uint256) {
         uint256 nextOrderId = ++orderId;
         order.orderId = nextOrderId;
@@ -327,6 +331,10 @@ contract Store is IStore {
         delete orders[_orderId];
     }
 
+    function getOrder(uint256 id) external view returns (Order memory _order) {
+        return orders[id];
+    }
+
     function getOrders() external view returns (Order[] memory _orders) {
         uint256 length = orderIds.length();
         _orders = new Order[](length);
@@ -345,6 +353,7 @@ contract Store is IStore {
         return _orders;
     }
 
+    // Positions
     function addOrUpdatePosition(Position calldata position) external onlyContract {
         bytes32 key = _getPositionKey(position.user, position.market);
         positions[key] = position;
@@ -377,12 +386,22 @@ contract Store is IStore {
         return keccak256(abi.encodePacked(user, market));
     }
 
+    // Markets
     function getMarket(string calldata market) external view returns (Market memory _market) {
         return markets[market];
     }
 
     function getMarketList() external view returns (string[] memory) {
         return marketList;
+    }
+
+    // Funding
+    function setFundingLastUpdated(string calldata market, uint256 timestamp) external onlyContract {
+        fundingLastUpdated[market] = timestamp;
+    }
+
+    function updateFundingTracker(string calldata market, int256 fundingIncrement) external onlyContract {
+        fundingTrackers[market] += fundingIncrement;
     }
 
     function getFundingLastUpdated(string calldata market) external view returns (uint256) {
@@ -395,13 +414,5 @@ contract Store is IStore {
 
     function getFundingTracker(string calldata market) external view returns (int256) {
         return fundingTrackers[market];
-    }
-
-    function setFundingLastUpdated(string calldata market, uint256 timestamp) external onlyContract {
-        fundingLastUpdated[market] = timestamp;
-    }
-
-    function updateFundingTracker(string calldata market, int256 fundingIncrement) external onlyContract {
-        fundingTrackers[market] += fundingIncrement;
     }
 }

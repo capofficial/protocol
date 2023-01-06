@@ -365,7 +365,7 @@ contract Trade is ITrade {
         uint256 keeperFee = fee * store.keeperFeeShare() / BPS_DIVIDER;
         fee -= keeperFee;
         pool.creditFee(order.user, order.market, fee, false);
-        store.transferOut(keeper, keeperFee);
+        store.incrementBalance(keeper, keeperFee);
 
         emit PositionIncreased(
             order.orderId,
@@ -474,7 +474,7 @@ contract Trade is ITrade {
         uint256 keeperFee = fee * store.keeperFeeShare() / BPS_DIVIDER;
         fee -= keeperFee;
         pool.creditFee(order.user, order.market, fee, false);
-        store.transferOut(keeper, keeperFee);
+        store.incrementBalance(keeper, keeperFee);
 
         emit PositionDecreased(
             order.orderId,
@@ -516,7 +516,7 @@ contract Trade is ITrade {
             _getPnL(_market, position.isLong, chainlinkPrice, position.price, position.size, position.fundingTracker);
 
         // Only profitable positions can be closed this way
-        require(pnl >= 0, "!pnl");
+        require(pnl >= 0, "pnl < 0");
 
         store.unlockMargin(user, position.margin);
         store.removePosition(user, _market);
@@ -566,6 +566,7 @@ contract Trade is ITrade {
                 store.removePosition(user, position.market);
 
                 store.unlockMargin(user, position.margin);
+                store.decrementBalance(user, position.margin);
 
                 uint256 chainlinkPrice = chainlink.getPrice(market.feed);
 
@@ -586,7 +587,7 @@ contract Trade is ITrade {
         }
 
         // credit liquidator fees
-        store.transferOut(msg.sender, liquidatorFees);
+        store.incrementBalance(msg.sender, liquidatorFees);
     }
 
     function getLiquidatableUsers() public view returns (address[] memory usersToLiquidate) {
@@ -692,7 +693,7 @@ contract Trade is ITrade {
     // Funding
     function getAccruedFunding(string memory market, uint256 intervals) public view returns (int256) {
         if (intervals == 0) {
-            intervals = (block.timestamp - store.getFundingLastUpdated(market)) / store.fundingInterval();
+            intervals = (block.timestamp - store.getFundingLastUpdated(market)) / store.FUNDING_INTERVAL();
         }
 
         if (intervals == 0) return 0;
@@ -704,7 +705,7 @@ contract Trade is ITrade {
 
         uint256 OIDiff = OIShort > OILong ? OIShort - OILong : OILong - OIShort;
         uint256 yearlyFundingFactor = store.getFundingFactor(market); // in bps
-            // intervals = hours since fundingInterval = 1 hour
+        // intervals = hours since FUNDING_INTERVAL = 1 hour
         uint256 accruedFunding = UNIT * yearlyFundingFactor * OIDiff * intervals / (24 * 365 * (OILong + OIShort)); // in UNIT * bps
 
         if (OILong > OIShort) {
@@ -725,7 +726,7 @@ contract Trade is ITrade {
             return;
         }
 
-        if (lastUpdated + store.fundingInterval() > _now) return;
+        if (lastUpdated + store.FUNDING_INTERVAL() > _now) return;
 
         int256 fundingIncrement = getAccruedFunding(market, 0); // in UNIT * bps
 
