@@ -4,7 +4,7 @@ out = 'out'
 libs = ['lib']
 fuzz_runs = 5000
 optimizer = true
-optimizer-runs = 100000
+optimizer-runs = 100
 via_ir = true
 # See more config options https://github.com/foundry-rs/foundry/tree/master/config
 

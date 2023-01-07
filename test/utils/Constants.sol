@@ -10,7 +10,7 @@ contract Constants is Test {
     uint256 public constant INITIAL_BALANCE = 1000_000 * CURRENCY_UNIT;
     uint256 public constant INITIAL_TRADE_DEPOSIT = 5000 * CURRENCY_UNIT;
 
-    address public treasury = makeAddr("Treausury");
+    address public treasury = makeAddr("Treasury");
     address public user = address(0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC);
     address public user2 = address(0x90F79bf6EB2c4f870365E785982E1f101E93b906);
 

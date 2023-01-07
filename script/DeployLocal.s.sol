@@ -2,6 +2,7 @@
 pragma solidity ^0.8.13;
 
 import "forge-std/Script.sol";
+import "forge-std/Test.sol";
 
 import "../src/interfaces/IStore.sol";
 import "../src/Trade.sol";
@@ -12,6 +13,7 @@ import "../src/mocks/MockChainlink.sol";
 import "../src/mocks/MockToken.sol";
 
 contract DeployLocalScript is Script {
+    uint256 public constant UNIT = 10 ** 18;
     uint256 public constant CURRENCY_UNIT = 10 ** 6;
 
     Trade public trade;
@@ -57,15 +59,21 @@ contract DeployLocalScript is Script {
         pool.link(address(trade), address(store), address(this)); // assuming treasury = address(this)
         console.log("Contracts linked");
 
+        address ethFeed = makeAddr("ETH-USD");
+        address btcFeed = makeAddr("BTC-USD");
+
+        console.log("ethFeed", ethFeed);
+        console.log("btcFeed", btcFeed);
+
         // Setup markets
         store.setMarket(
             "ETH-USD",
             IStore.Market({
                 symbol: "ETH-USD",
-                feed: address(0),
+                feed: ethFeed,
                 maxLeverage: 50,
                 maxOI: 5000000 * CURRENCY_UNIT,
-                fee: 100,
+                fee: 10,
                 fundingFactor: 5000,
                 minSize: 20 * CURRENCY_UNIT,
                 minSettlementTime: 1 minutes
@@ -75,10 +83,10 @@ contract DeployLocalScript is Script {
             "BTC-USD",
             IStore.Market({
                 symbol: "BTC-USD",
-                feed: address(0),
+                feed: btcFeed,
                 maxLeverage: 50,
                 maxOI: 5000000 * CURRENCY_UNIT,
-                fee: 100,
+                fee: 10,
                 fundingFactor: 5000,
                 minSize: 20 * CURRENCY_UNIT,
                 minSettlementTime: 1 minutes
@@ -86,6 +94,10 @@ contract DeployLocalScript is Script {
         );
 
         console.log("Markets set up.");
+
+        // Setup prices
+        chainlink.setPrice(ethFeed, 5000 * UNIT); // 1 ETH = 5000 USD
+        chainlink.setPrice(btcFeed, 100_000 * UNIT); // 1 BTC = 100k USD
 
         // Mint and approve some mock USDC
 
