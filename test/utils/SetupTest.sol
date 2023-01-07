@@ -27,13 +27,13 @@ contract SetupTest is Constants {
         chainlink = new MockChainlink();
         //console.log("Chainlink deployed to", address(chainlink));
 
-        store = new Store();
+        store = new Store(address(this));
         //console.log("Store deployed to", address(store));
 
-        trade = new Trade();
+        trade = new Trade(address(this));
         //console.log("Trade deployed to", address(trade));
 
-        pool = new Pool();
+        pool = new Pool(address(this));
         //console.log("Pool deployed to", address(pool));
 
         clp = new CLP(address(store));

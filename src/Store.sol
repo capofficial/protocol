@@ -82,8 +82,8 @@ contract Store is IStore {
         _;
     }
 
-    constructor() {
-        gov = msg.sender;
+    constructor(address _gov) {
+        gov = _gov;
     }
 
     // Gov methods
