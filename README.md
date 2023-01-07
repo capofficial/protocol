@@ -6,11 +6,11 @@ For details on how the margin / trading system works, please check the [Whitepap
 
 The items below are listed in priority order. All milestones are **ASAP**, with a target production launch date of **early January** on Arbitrum. The driving factor is high quality, speed, and code simplicity.
  
-- [ ] Add automated tests, including fuzzy, to achieve > 90% coverage
-- [ ] Refactor code while maintaining readability
+- [x] Add automated tests, including fuzzy, to achieve > 90% coverage
+- [x] Refactor code while maintaining readability
 - [ ] Run auditing tools, get more eyes on the contracts
 - [ ] Deploy and test locally with the [UI](https://github.com/capofficial/ui) to make sure everything is working as expected
-- [ ] Create production deploy scripts
+- [x] Create production deploy scripts
 
 ## Done
 
