@@ -19,7 +19,7 @@ contract PoolTest is TestUtils {
         _depositAndSubmitOrders();
 
         // set ETH price to stop loss price, stop loss order should execute
-        chainlink.setPrice(ethFeed, 4500);
+        chainlink.setPrice(ethFeed, 4500 * UNIT);
         trade.executeOrders();
 
         // ETH went down 10%, position size was 10k, so user lost 1k
@@ -30,7 +30,7 @@ contract PoolTest is TestUtils {
         skip(1 days);
 
         // set BTC price to stop loss price, stop loss order should execute
-        chainlink.setPrice(btcFeed, 90000);
+        chainlink.setPrice(btcFeed, 90000 * UNIT);
         trade.executeOrders();
 
         // BTC went down 10%, position size was 10k, so user lost 1k -> bufferBalance = 2k USDC
@@ -60,27 +60,31 @@ contract PoolTest is TestUtils {
         assertGt(store.poolBalance(), 5000 * CURRENCY_UNIT, "!poolBalance");
 
         // set ETH price to 6000 USDC, TP order should execute -> user made 2k profit
-        chainlink.setPrice(ethFeed, 6000);
+        chainlink.setPrice(ethFeed, 6000 * UNIT);
         trade.executeOrders();
 
         assertEq(store.bufferBalance(), 0, "bufferBalance != 0");
 
         // set BTC price to 120k, TP order should execute -> user made 2k profit
-        chainlink.setPrice(btcFeed, 120_000);
+        chainlink.setPrice(btcFeed, 120_000 * UNIT);
         trade.executeOrders();
 
         // buffer is already empty so profits are taken from the pool
         assertGt(store.poolBalance(), 3000 * CURRENCY_UNIT, "!poolBalance");
 
-        // user balance should be initital deposit + profit - orderFees => 10k + 4k - 600 = 18400
-        assertEq(store.getBalance(user), 13400 * CURRENCY_UNIT, "!userBalance");
+        // user balance should be initital deposit + profit - orderFees => 10k + 4k - 60 = 13940
+        assertEq(store.getBalance(user), 13940 * CURRENCY_UNIT, "!userBalance");
     }
 
     function testCreditFee() public {
         _depositAndSubmitOrders();
 
-        // ETH and BTC Long are executed, position size is 10k each, fee is 100 USDC each
-        uint256 fee = 200 * CURRENCY_UNIT;
+        // get markets
+        IStore.Market memory ethMarket = store.getMarket("ETH-USD");
+        IStore.Market memory btcMarket = store.getMarket("BTC-USD");
+
+        // ETH and BTC Long are executed, position size is 10k each, fee is 10 USDC each
+        uint256 fee = (ethMarket.fee * ethLong.size + btcMarket.fee * btcLong.size) / BPS_DIVIDER;
         uint256 keeperFee = fee * store.keeperFeeShare() / BPS_DIVIDER;
         fee -= keeperFee;
         uint256 poolFee = fee * store.poolFeeShare() / BPS_DIVIDER;
@@ -99,7 +103,7 @@ contract PoolTest is TestUtils {
         assertGt(store.poolBalance(), 1000 * CURRENCY_UNIT, "!poolBalance");
 
         // set ETH price to 6000 USDC, TP order should execute -> user made 2k profit
-        chainlink.setPrice(ethFeed, 6000);
+        chainlink.setPrice(ethFeed, 6000 * UNIT);
 
         // pool liquidity is 1k, not enough to pay trader profit
         vm.expectRevert("!pool-balance");

@@ -47,13 +47,41 @@ contract TestUtils is SetupTest {
         timestamp: 0
     });
 
+    IStore.Order ethShort = IStore.Order({
+        orderId: 0,
+        user: address(0),
+        market: "ETH-USD",
+        price: 0, // price doesnt matter, since ordertype = market
+        isLong: false,
+        isReduceOnly: false,
+        orderType: 0, // 0 = market, 1 = limit, 2 = stop
+        margin: 2500 * CURRENCY_UNIT,
+        size: 10000 * CURRENCY_UNIT, // leverage => 5x
+        fee: 0,
+        timestamp: 0
+    });
+
+    IStore.Order btcShort = IStore.Order({
+        orderId: 0,
+        user: address(0),
+        market: "BTC-USD",
+        price: 0, // price doesnt matter, since ordertype = market
+        isLong: false,
+        isReduceOnly: false,
+        orderType: 0, // 0 = market, 1 = limit, 2 = stop
+        margin: 2500 * CURRENCY_UNIT,
+        size: 10000 * CURRENCY_UNIT, // leverage => 5x
+        fee: 0,
+        timestamp: 0
+    });
+
     // Helper functions
     function _depositAndSubmitOrders() internal {
         vm.startPrank(user);
         trade.deposit(10000 * CURRENCY_UNIT);
         // submit two test orders with stop loss 10% below current price and TP 20% above current price
-        trade.submitOrder(ethLong, 6000, 4500);
-        trade.submitOrder(btcLong, 120_000, 90000);
+        trade.submitOrder(ethLong, 6000 * UNIT, 4500 * UNIT);
+        trade.submitOrder(btcLong, 120_000 * UNIT, 90000 * UNIT);
         vm.stopPrank();
 
         // minSettlementTime is 1 minutes -> fast forward 2 minutes
