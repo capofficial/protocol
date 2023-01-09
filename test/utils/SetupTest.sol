@@ -27,13 +27,13 @@ contract SetupTest is Constants {
         chainlink = new MockChainlink();
         //console.log("Chainlink deployed to", address(chainlink));
 
-        store = new Store();
+        store = new Store(address(this));
         //console.log("Store deployed to", address(store));
 
-        trade = new Trade();
+        trade = new Trade(address(this));
         //console.log("Trade deployed to", address(trade));
 
-        pool = new Pool();
+        pool = new Pool(address(this));
         //console.log("Pool deployed to", address(pool));
 
         clp = new CLP(address(store));
@@ -76,8 +76,8 @@ contract SetupTest is Constants {
         //console.log("Markets set up.");
 
         // Setup prices
-        chainlink.setPrice(ethFeed, 5000 * UNIT); // 1 ETH = 5000 USD
-        chainlink.setPrice(btcFeed, 100_000 * UNIT); // 1 BTC = 100k USD
+        chainlink.setPrice(ethFeed, ETH_PRICE);
+        chainlink.setPrice(btcFeed, BTC_PRICE);
 
         // Mint and approve some mock USDC
         usdc.mint(INITIAL_BALANCE);

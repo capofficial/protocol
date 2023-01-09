@@ -27,7 +27,6 @@ contract DeployLocalScript is Script {
     function setUp() public {}
 
     function run() public {
-        
         // this is the default mnemonic anvil uses
         string memory mnemonic = "test test test test test test test test test test test junk";
         (address deployer,) = deriveRememberKey(mnemonic, 0);
@@ -41,13 +40,13 @@ contract DeployLocalScript is Script {
         chainlink = new MockChainlink();
         console.log("Chainlink deployed to", address(chainlink));
 
-        store = new Store();
+        store = new Store(deployer);
         console.log("Store deployed to", address(store));
 
-        trade = new Trade();
+        trade = new Trade(deployer);
         console.log("Trade deployed to", address(trade));
 
-        pool = new Pool();
+        pool = new Pool(deployer);
         console.log("Pool deployed to", address(pool));
 
         clp = new CLP(address(store));

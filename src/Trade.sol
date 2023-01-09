@@ -22,8 +22,8 @@ contract Trade is ITrade {
         _;
     }
 
-    constructor() {
-        gov = msg.sender;
+    constructor(address _gov) {
+        gov = _gov;
     }
 
     // Gov methods
@@ -95,9 +95,7 @@ contract Trade is ITrade {
         if (params.isReduceOnly) {
             params.margin = 0;
         } else {
-            uint256 leverage = UNIT * params.size / params.margin;
-            require(leverage >= UNIT, "!min-leverage");
-            require(leverage <= market.maxLeverage * UNIT, "!max-leverage");
+            params.margin = params.size / market.maxLeverage;
 
             // check equity
             int256 upl = getUpl(user);
@@ -111,7 +109,7 @@ contract Trade is ITrade {
             if (int256(lockedMargin + params.margin) > equity) {
                 params.margin = uint256(equity - int256(lockedMargin));
                 // adjust size so leverage stays the same
-                params.size = (leverage * params.margin) / UNIT;
+                params.size = market.maxLeverage * params.margin;
             }
 
             require(params.margin > 0 && int256(lockedMargin + params.margin) <= equity, "!margin");

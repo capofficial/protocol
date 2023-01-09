@@ -13,8 +13,8 @@ contract TestUtils is SetupTest {
         isLong: true,
         isReduceOnly: false,
         orderType: 0, // 0 = market, 1 = limit, 2 = stop
-        margin: 2500 * CURRENCY_UNIT,
-        size: 10000 * CURRENCY_UNIT, // leverage => 5x
+        margin: 0, // will be set in Trade.submitOrder (size / market.maxLeverage)
+        size: 100_000 * CURRENCY_UNIT,
         fee: 0,
         timestamp: 0
     });
@@ -27,8 +27,8 @@ contract TestUtils is SetupTest {
         isLong: true,
         isReduceOnly: false,
         orderType: 0, // 0 = market, 1 = limit, 2 = stop
-        margin: 2500 * CURRENCY_UNIT,
-        size: 10000 * CURRENCY_UNIT, // leverage => 5x
+        margin: 0, // will be set in Trade.submitOrder (size / market.maxLeverage)
+        size: 100_000 * CURRENCY_UNIT,
         fee: 0,
         timestamp: 0
     });
@@ -41,24 +41,63 @@ contract TestUtils is SetupTest {
         isLong: true,
         isReduceOnly: false,
         orderType: 1, // 0 = market, 1 = limit, 2 = stop
-        margin: 2500 * CURRENCY_UNIT,
-        size: 10000 * CURRENCY_UNIT, // leverage => 5x
+        margin: 0, // will be set in Trade.submitOrder (size / market.maxLeverage)
+        size: 100_000 * CURRENCY_UNIT,
+        fee: 0,
+        timestamp: 0
+    });
+
+    IStore.Order ethShort = IStore.Order({
+        orderId: 0,
+        user: address(0),
+        market: "ETH-USD",
+        price: 0, // price doesnt matter, since ordertype = market
+        isLong: false,
+        isReduceOnly: false,
+        orderType: 0, // 0 = market, 1 = limit, 2 = stop
+        margin: 0, // will be set in Trade.submitOrder (size / market.maxLeverage)
+        size: 100_000 * CURRENCY_UNIT,
+        fee: 0,
+        timestamp: 0
+    });
+
+    IStore.Order btcShort = IStore.Order({
+        orderId: 0,
+        user: address(0),
+        market: "BTC-USD",
+        price: 0, // price doesnt matter, since ordertype = market
+        isLong: false,
+        isReduceOnly: false,
+        orderType: 0, // 0 = market, 1 = limit, 2 = stop
+        margin: 0, // will be set in Trade.submitOrder (size / market.maxLeverage)
+        size: 100_000 * CURRENCY_UNIT,
         fee: 0,
         timestamp: 0
     });
 
     // Helper functions
-    function _depositAndSubmitOrders() internal {
+    function _submitAndExecuteOrders() internal {
         vm.startPrank(user);
-        trade.deposit(10000 * CURRENCY_UNIT);
-        // submit two test orders with stop loss 10% below current price and TP 20% above current price
-        trade.submitOrder(ethLong, 6000, 4500);
-        trade.submitOrder(btcLong, 120_000, 90000);
+
+        // deposit funds for trading
+        trade.deposit(INITIAL_TRADE_DEPOSIT);
+
+        // submit two test orders with stop loss 2% below current price and TP 2% above current price
+        trade.submitOrder(ethLong, 5100 * UNIT, 4900 * UNIT);
+        trade.submitOrder(btcLong, 102_000 * UNIT, 98000 * UNIT);
         vm.stopPrank();
 
         // minSettlementTime is 1 minutes -> fast forward 2 minutes
         skip(2 minutes);
         trade.executeOrders();
+    }
+
+    // returns order fee
+    function _getOrderFee(string memory market, uint256 orderSize) internal view returns (uint256 fee) {
+        IStore.Market memory _market = store.getMarket(market);
+
+        // order fee
+        fee = _market.fee * orderSize / BPS_DIVIDER;
     }
 
     // console.log orders if log == true, returns length of order array

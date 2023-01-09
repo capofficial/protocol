@@ -25,8 +25,8 @@ contract Pool is IPool {
         _;
     }
 
-    constructor() {
-        gov = msg.sender;
+    constructor(address _gov) {
+        gov = _gov;
     }
 
     function updateGov(address _gov) external onlyGov {
