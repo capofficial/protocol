@@ -89,11 +89,11 @@ contract DeployArbitrum is Script {
         vm.startBroadcast(pk);
 
         // deploy contracts
-        chainlink = new Chainlink{salt: bytes32("CHAINLINK")}(sequencer);
-        store = new Store{salt: bytes32("STORE")}(_gov);
-        trade = new Trade{salt: bytes32("TRADE")}(_gov);
-        pool = new Pool{salt: bytes32("POOL")}(_gov);
-        clp = new CLP{salt: bytes32("CLP")}(address(store));
+        chainlink = new Chainlink{salt: bytes32("CHAINLINK4")}(sequencer);
+        store = new Store{salt: bytes32("STORE4")}(_gov);
+        trade = new Trade{salt: bytes32("TRADE4")}(_gov);
+        pool = new Pool{salt: bytes32("POOL4")}(_gov);
+        clp = new CLP{salt: bytes32("CLP4")}(address(store));
 
         // Link contracts
         store.link(address(trade), address(pool), usdc, address(clp));
