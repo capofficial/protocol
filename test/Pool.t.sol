@@ -13,78 +13,73 @@ contract PoolTest is TestUtils {
 
     function setUp() public virtual override {
         super.setUp();
+
+        _submitAndExecuteOrders();
     }
 
     function testCreditTraderLoss() public {
-        _depositAndSubmitOrders();
-
         // set ETH price to stop loss price, stop loss order should execute
-        chainlink.setPrice(ethFeed, 4500 * UNIT);
+        chainlink.setPrice(ethFeed, ETH_SL_PRICE);
         trade.executeOrders();
 
-        // ETH went down 10%, position size was 10k, so user lost 1k
+        // ETH went down 2%, position size was 100k, so user lost 2k
         // poolLastPaid = 0, so full amount should be used to increment Buffer balance
-        assertEq(store.bufferBalance(), 1000 * CURRENCY_UNIT, "bufferBalance != 1000 USDC");
+        assertEq(store.bufferBalance(), 2000 * CURRENCY_UNIT, "!bufferBalance");
 
         // fast forward one day
         skip(1 days);
 
         // set BTC price to stop loss price, stop loss order should execute
-        chainlink.setPrice(btcFeed, 90000 * UNIT);
+        chainlink.setPrice(btcFeed, BTC_SL_PRICE);
         trade.executeOrders();
 
-        // BTC went down 10%, position size was 10k, so user lost 1k -> bufferBalance = 2k USDC
-        // we fast forwarded one day, so amountToSendPool = 2k USDC * 1/7 = 285.71
+        // BTC went down 2%, position size was 100k, so user lost 2k -> bufferBalance = 4k USDC
+        // we fast forwarded one day, so amountToSendPool = 4k USDC * 1/7 = 571.43
 
         // buffer balance should be reduced
         assertApproxEqRel(
             store.bufferBalance(),
-            (2000 - 285) * CURRENCY_UNIT,
+            (4000 - 571) * CURRENCY_UNIT,
             0.01 * 1e18,
-            "bufferBalance != 2000 USDC - amountToSendPool"
+            "bufferBalance != 4000 USDC - amountToSendPool"
         );
         // pool balance should be amountToSendPool + fees
-        assertGt(store.poolBalance(), 285 * CURRENCY_UNIT, "!(poolBalance > amountToSendPool)");
+        assertGt(store.poolBalance(), 571 * CURRENCY_UNIT, "!(poolBalance > amountToSendPool)");
     }
 
     function testDebitTraderProfit() public {
-        _depositAndSubmitOrders();
-
         // add pool liquidity
         pool.addLiquidity(5000 * CURRENCY_UNIT);
         // set msg.sender = trade contract to set buffer balance
         vm.prank(address(trade));
         store.incrementBufferBalance(2000 * CURRENCY_UNIT);
 
+        // Check that balances are correct
         assertEq(store.bufferBalance(), 2000 * CURRENCY_UNIT, "!bufferBalance");
         assertGt(store.poolBalance(), 5000 * CURRENCY_UNIT, "!poolBalance");
 
-        // set ETH price to 6000 USDC, TP order should execute -> user made 2k profit
-        chainlink.setPrice(ethFeed, 6000 * UNIT);
+        // set ETH price to 5100 USDC, TP order should execute -> user made 2k profit
+        chainlink.setPrice(ethFeed, ETH_TP_PRICE);
         trade.executeOrders();
 
         assertEq(store.bufferBalance(), 0, "bufferBalance != 0");
 
-        // set BTC price to 120k, TP order should execute -> user made 2k profit
-        chainlink.setPrice(btcFeed, 120_000 * UNIT);
+        // set BTC price to 102k, TP order should execute -> user made 2k profit
+        chainlink.setPrice(btcFeed, BTC_TP_PRICE);
         trade.executeOrders();
 
         // buffer is already empty so profits are taken from the pool
         assertGt(store.poolBalance(), 3000 * CURRENCY_UNIT, "!poolBalance");
 
-        // user balance should be initital deposit + profit - orderFees => 10k + 4k - 60 = 13940
-        assertEq(store.getBalance(user), 13940 * CURRENCY_UNIT, "!userBalance");
+        // in total 6 orders were executed
+        uint256 fee = _getOrderFee("ETH-USD", ethLong.size) * 6;
+        // user balance should be initital deposit - orderFees + profit
+        assertEq(store.getBalance(user), INITIAL_TRADE_DEPOSIT - fee + 4000 * CURRENCY_UNIT, "!userBalance");
     }
 
     function testCreditFee() public {
-        _depositAndSubmitOrders();
-
-        // get markets
-        IStore.Market memory ethMarket = store.getMarket("ETH-USD");
-        IStore.Market memory btcMarket = store.getMarket("BTC-USD");
-
         // ETH and BTC Long are executed, position size is 10k each, fee is 10 USDC each
-        uint256 fee = (ethMarket.fee * ethLong.size + btcMarket.fee * btcLong.size) / BPS_DIVIDER;
+        uint256 fee = _getOrderFee("ETH-USD", ethLong.size) + _getOrderFee("BTC-USD", btcLong.size);
         uint256 keeperFee = fee * store.keeperFeeShare() / BPS_DIVIDER;
         fee -= keeperFee;
         uint256 poolFee = fee * store.poolFeeShare() / BPS_DIVIDER;
@@ -96,14 +91,12 @@ contract PoolTest is TestUtils {
     }
 
     function testRevertPoolBalance() public {
-        _depositAndSubmitOrders();
-
         // add pool liquidity
         pool.addLiquidity(1000 * CURRENCY_UNIT);
         assertGt(store.poolBalance(), 1000 * CURRENCY_UNIT, "!poolBalance");
 
-        // set ETH price to 6000 USDC, TP order should execute -> user made 2k profit
-        chainlink.setPrice(ethFeed, 6000 * UNIT);
+        // set ETH to ETH_TP_PRICE, TP order should execute -> user made 2k profit
+        chainlink.setPrice(ethFeed, ETH_TP_PRICE);
 
         // pool liquidity is 1k, not enough to pay trader profit
         vm.expectRevert("!pool-balance");
@@ -114,26 +107,39 @@ contract PoolTest is TestUtils {
     function testFuzzAddAndRemoveLiquidity(uint256 amount) public {
         vm.assume(amount > 1 * CURRENCY_UNIT && amount <= INITIAL_BALANCE);
 
+        // one ETH long and one BTC long is already executed
+        uint256 fee = _getOrderFee("ETH-USD", ethLong.size) + _getOrderFee("BTC-USD", btcLong.size);
+        uint256 keeperFee = fee * store.keeperFeeShare() / BPS_DIVIDER;
+        fee -= keeperFee;
+        uint256 poolFee = fee * store.poolFeeShare() / BPS_DIVIDER;
+
         // expect AddLiquidity event
         vm.expectEmit(true, true, true, true);
-        emit AddLiquidity(user, amount, amount, amount);
+        emit AddLiquidity(user, amount, amount, amount + poolFee);
         vm.prank(user);
         pool.addLiquidity(amount);
 
         // pool balance should be equal to amount + fees
-        assertEq(store.poolBalance(), amount, "poolBalance != amount");
+        assertEq(store.poolBalance(), amount + poolFee, "!poolBalance");
 
         uint256 feeAmount = amount * store.poolWithdrawalFee() / BPS_DIVIDER;
         uint256 amountMinusFee = amount - feeAmount;
-        // CLP amount is amountMinusFee, since clpSupply and poolBalance is identical
-        uint256 clpAmount = amountMinusFee;
+
+        // CLP amount
+        uint256 balance = store.poolBalance();
+        uint256 clpSupply = store.getCLPSupply();
+        uint256 clpAmount = amountMinusFee * clpSupply / balance;
+
+        console.log("poolFee", poolFee);
+        console.log("feeAMount", feeAmount);
 
         // CLP should be burned
         vm.expectEmit(true, true, true, true);
         emit Transfer(user, address(0), clpAmount);
+
         // expect RemoveLiquidity event
         vm.expectEmit(true, true, true, true);
-        emit RemoveLiquidity(user, amount, feeAmount, clpAmount, feeAmount);
+        emit RemoveLiquidity(user, amount, feeAmount, clpAmount, poolFee + feeAmount);
         vm.prank(user);
         pool.removeLiquidity(amount);
     }

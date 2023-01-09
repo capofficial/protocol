@@ -27,7 +27,6 @@ contract TradeTest is TestUtils {
         assertEq(_printOrders(flag), 2, "!orderCount");
         assertEq(_printUserPositions(user, flag), 0, "!positionCount");
 
-        console.log("-------------------------------");
         console.log();
 
         // minSettlementTime is 1 minutes -> fast forward 2 minutes
@@ -37,8 +36,6 @@ contract TradeTest is TestUtils {
         // should be one SL order and one long position
         assertEq(_printOrders(flag), 1, "!orderCount");
         assertEq(_printUserPositions(user, flag), 1, "!positionCount");
-
-        console.log("-------------------------------");
 
         // set ETH price to SL price and execute SL order
         chainlink.setPrice(ethFeed, 4500 * UNIT);
@@ -53,33 +50,32 @@ contract TradeTest is TestUtils {
         // deposit 5000 USDC for trading
         trade.deposit(INITIAL_TRADE_DEPOSIT);
 
-        // submit first order with 2500 margin
+        // submit first order, order.size = 100k, leverage = 50 -> margin 2k
         trade.submitOrder(ethLong, 0, 0);
-        assertEq(2500 * CURRENCY_UNIT, store.getLockedMargin(user), "lockedMargin != 2500 USDC");
+        assertEq(2000 * CURRENCY_UNIT, store.getLockedMargin(user), "!lockedMargin");
 
-        // submit second order with 2000 margin
-        ethLong.margin = 2000 * CURRENCY_UNIT;
-        trade.submitOrder(ethLong, 0, 0);
-        assertEq(4500 * CURRENCY_UNIT, store.getLockedMargin(user), "lockedMargin != 2500 USDC");
+        // submit second order, order.size = 100k, leverage = 50 -> margin 2k
+        trade.submitOrder(btcLong, 0, 0);
+        assertEq(4000 * CURRENCY_UNIT, store.getLockedMargin(user), "!lockedMargin");
 
-        // balance should be 4980 USDC since submitting an order incurs a 10 USDC fee
-        assertEq(4980 * CURRENCY_UNIT, store.getBalance(user), "balance != 4800 USDC");
+        // balance should be initial deposit - fee (4800 USDC)
+        uint256 fee = _getOrderFee("ETH-USD", ethLong.size) + _getOrderFee("BTC-USD", btcLong.size);
+        assertEq(INITIAL_TRADE_DEPOSIT - fee, store.getBalance(user), "!balance");
 
-        // at this point, lockedMargin = 4500 USDC and balance = 4980 USDC
-        // freeMargin = balance - lockedMargin = 480 USDC
+        // at this point, lockedMargin = 4000 USDC and balance = 4800 USDC
+        // freeMargin = balance - lockedMargin = 800 USDC
 
-        // submit third order with 1000 USDC margin
-        ethLong.margin = 1000 * CURRENCY_UNIT;
+        // submit third order, order.size = 100k, leverage = 50 -> margin 2k
         trade.submitOrder(ethLong, 0, 0);
 
         Store.Order[] memory _orders = store.getUserOrders(user);
 
-        // contract should have set order margin to 480
-        assertEq(_orders[2].margin, 480 * CURRENCY_UNIT, "!orderMargin");
+        // since freeMargin = 800, contract should have set margin of newest position to 800 USDC
+        assertEq(_orders[2].margin, 800 * CURRENCY_UNIT, "!orderMargin");
 
-        // position.size was unchanged at 10000 USDC, so leverage = 10
-        // since margin was decreased to 480 USDC, new position size for third order should be 4800 USDC
-        assertEq(_orders[2].size, 4800 * CURRENCY_UNIT, "!positionSize");
+        // order.size should be order.margin * market.maxLeverage
+        IStore.Market memory _market = store.getMarket("ETH-USD");
+        assertEq(_orders[2].size, _orders[2].margin * _market.maxLeverage, "!orderSize");
 
         // taking order fees into account, equity is now below lockedMargin
         // submitting new orders shouldnt be possible
@@ -111,11 +107,16 @@ contract TradeTest is TestUtils {
         trade.withdraw(0);
 
         trade.deposit(INITIAL_TRADE_DEPOSIT);
+
+        // submit order, order.size 100k, margin 2k
         trade.submitOrder(ethLong, 0, 0);
 
-        // locked margin = 2500 USDC, orderfee = 10 USDC => withdrawing more than 2490 USDC shouldnt work
+        // locked margin = 2000 USDC, orderfee = 100 USDC => withdrawing more than 2900 USDC shouldnt work
+        uint256 fee = _getOrderFee("ETH-USD", ethLong.size);
+        IStore.Order memory order = store.getOrder(1);
+        uint256 maxAmountToWithdraw = INITIAL_TRADE_DEPOSIT - order.margin - fee;
         vm.expectRevert("!equity");
-        trade.withdraw(2491 * CURRENCY_UNIT);
+        trade.withdraw(maxAmountToWithdraw + 1);
 
         // minSettlementTime is 1 minutes -> fast forward 2 minutes
         skip(2 minutes);
@@ -126,14 +127,15 @@ contract TradeTest is TestUtils {
 
         // withdrawing should work
         vm.expectEmit(true, true, true, true);
-        emit Withdraw(user, 2501 * CURRENCY_UNIT);
-        trade.withdraw(2501 * CURRENCY_UNIT);
+        emit Withdraw(user, maxAmountToWithdraw + 1);
+        trade.withdraw(maxAmountToWithdraw + 1);
     }
 
     function testRevertOrderType() public {
         trade.deposit(INITIAL_TRADE_DEPOSIT);
 
         ethLongLimit.price = 6000 * UNIT;
+
         // orderType == 1 && isLong == true && chainLinkPrice <= order.price, should revert
         vm.expectRevert("!orderType");
         trade.submitOrder(ethLongLimit, 0, 0);
@@ -248,24 +250,24 @@ contract TradeTest is TestUtils {
         trade.submitOrder(ethLong, 0, 0);
         vm.stopPrank();
 
-        uint256 orderFee = 10 * CURRENCY_UNIT;
+        uint256 orderFee = _getOrderFee("ETH-USD", ethLong.size);
+        IStore.Order memory order = store.getOrder(1);
 
         // minSettlementTime is 1 minutes -> fast forward 2 minutes
         skip(2 minutes);
         trade.executeOrders();
 
-        // marginLevel = equity / lockedMargin and equity = userBalance + unrealized P/L
-        // liquidation happens when marginLevel < 20%
-        // lockedMargin = 2.5k and userBalance = initial_deposit - order.fee = 5k - 10 = 4990
-        // => liquidation when unrealized P/L = -4490 USD
-        // leverage of position is 5, initial price of ETH was 5k, so ETH has to fall below 2755 USD
-        chainlink.setPrice(ethFeed, 2755 * UNIT);
+        // liquidation when marginLevel < 20%
+        // marginLevel = (INITIAL_TRADE_DEPOSIT - fee + P/L) / lockedMargin
+        // lockedMargin = 2k; INITIAL_TRADE_DEPOSIT - fee = 4900 USDC
+        // -> liquidation when unrealized P/L = -4500 USD -> ETH has to fall below 4775 USD
+        chainlink.setPrice(ethFeed, 4775 * UNIT);
 
         // ETH price is right at liquidation level, user shouldnt get liquidated yet
         address[] memory usersToLiquidate = trade.getLiquidatableUsers();
         assertEq(usersToLiquidate.length, 0);
 
-        chainlink.setPrice(ethFeed, 2754 * UNIT);
+        chainlink.setPrice(ethFeed, 4774 * UNIT);
         // ETH price is right below liquidation level
         usersToLiquidate = trade.getLiquidatableUsers();
         assertEq(usersToLiquidate[0], user);
@@ -275,13 +277,13 @@ contract TradeTest is TestUtils {
         trade.liquidateUsers();
 
         // liquidation fee should have been credited to user2
-        assertEq(store.getBalance(user2), 1 * CURRENCY_UNIT);
+        assertEq(store.getBalance(user2), orderFee * store.keeperFeeShare() / BPS_DIVIDER);
 
         // user should have lost his margin
         assertEq(store.getLockedMargin(user), 0);
 
         // and balance should be INITIAL_DEPOSIT - order.fee - order.margin
-        assertEq(store.getBalance(user), INITIAL_TRADE_DEPOSIT - orderFee - ethLong.margin);
+        assertEq(store.getBalance(user), INITIAL_TRADE_DEPOSIT - orderFee - order.margin);
     }
 
     function testOpenInterestLong() public {
